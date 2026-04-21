@@ -20,7 +20,7 @@
         const SCHOOL_LNG = 100.75591785106874; 
          
         // 4. Jarak Radius yang dibenarkan (dalam meter)
-        const RADIUS_METER = 40000; 
+        const RADIUS_METER = 300; 
 
         // 5. Anti-Spam Check-Check: Berapa minit dalam kawasan baru auto-masuk? (Elak spam)
         const MINIT_ANTI_SPAM_MASUK = 1;
@@ -29,7 +29,7 @@
         const MINIT_DELAY_KELUAR = 1;
 
         // 7. Jarak Reset Auto-In: Pengguna perlu keluar sejauh ini (meter) untuk aktifkan semula auto-in selepas check-out
-        const RADIUS_RESET_AUTO_IN = 500;
+        const RADIUS_RESET_AUTO_IN = 300;
 
         // 8. KONFIGURASI JADUAL BERTUGAS & KATEGORI (PUSAT KAWALAN UTAMA)
         // Ubah masa di sini untuk kawal waktu masuk/keluar bagi setiap jabatan.
@@ -188,7 +188,7 @@
                     showModernAlert("Gagal Masuk", e, "error");
                     isSubmitting = false;
                     document.getElementById('btnMainSubmit').disabled = false;
-                    document.getElementById('btnMainSubmit').innerHTML = `<img src="https://cdn-icons-png.flaticon.com/128/9402/9402342.png" class="icon-3d-std"> DAFTAR MASUK (MANUAL)`;
+                    document.getElementById('btnMainSubmit').innerHTML = `<img src="https://cdn-icons-png.flaticon.com/128/9402/9402342.png" class="icon-3d-std"> DAFTAR MASUK `;
                     return;
                 }
 
@@ -792,7 +792,7 @@
                 <textarea id="alasanKeluar" style="display:none;" placeholder="Mohon nyatakan sebab pulang awal untuk makluman pentadbir..."></textarea>
                 
                 <button id="btnKeluar" class="btn btn-keluar" onclick="hantarKeluar(false)">
-                    <img src="https://cdn-icons-png.flaticon.com/128/3580/3580154.png" class="icon-3d-std"> DAFTAR KELUAR (MANUAL)
+                    <img src="https://cdn-icons-png.flaticon.com/128/3580/3580154.png" class="icon-3d-std"> DAFTAR KELUAR 
                 </button>
                 
                 <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
