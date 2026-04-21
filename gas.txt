@@ -6,7 +6,7 @@
  */
 
 // ID FOLDER FOTO (Pastikan folder ini wujud dan permission 'Anyone with link' = Viewer)
-var ID_FOLDER_FOTO = "1kq_-WFogP16zVK3KKff9X4ubj5wDmS8w"; 
+var ID_FOLDER_FOTO = "1Ia26pk1bhT1GZCRuTqzE7rLu0cSX8IRJ"; 
 
 var PASSCODE_RAHSIA = "101010"; 
 var idSheet = SpreadsheetApp.getActiveSpreadsheet().getId();
