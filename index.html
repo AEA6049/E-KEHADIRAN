@@ -887,6 +887,7 @@
                 btnBatal = `<button onclick="batalCutiAction('${i.uuid}', '${i.tarikhMula}')" style="margin-top:5px;background:#e74c3c;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer;">Batal Cuti</button>`;
             }
             let btnBukti = (i.buktiUrl && i.buktiUrl.length > 10) ? `<button onclick="window.open('${i.buktiUrl}', '_blank')" style="margin-top:5px; margin-left:5px; background:#3498db;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><img src="https://cdn-icons-png.flaticon.com/128/7268/7268609.png" style="width:12px; height:12px;"> Muat Turun Lampiran</button>` : `<span style="font-size:10px; color:#999; margin-left:5px; margin-top:5px;">Tiada Lampiran</span>`;
+            let alasanText = i.alasan ? `<div style="color:#888; font-style:italic; margin-bottom:5px; font-size:11px;">Sebab: ${i.alasan}</div>` : "";
             
             html += `<div class="cuti-card ${classCard}">
                 <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
@@ -894,6 +895,7 @@
                     <span style="font-size:10px; color:#555;">${i.tarikhMula} hingga ${i.tarikhTamat}</span>
                 </div>
                 <div style="color:#666; margin-bottom:5px;">Status: ${i.statusRekod} | ${i.statusPengesahan} ${pengesahText}</div>
+                ${alasanText}
                 <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px;">
                     ${btnBatal} ${btnBukti}
                 </div>
