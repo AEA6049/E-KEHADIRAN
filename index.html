@@ -858,7 +858,7 @@
             showModernAlert("Ralat", "Gagal menghubungi server.", "error");
           } finally {
             btn.disabled = false;
-            btn.innerText = "HANTAR PERMOHONAN CUTI";
+            btn.innerText = "HANTAR PERMOHONAN";
           }
         }
       );
@@ -1306,13 +1306,13 @@
 
       <div id="cutiMainPanel" class="cuti-panel-box">
           <h3 style="color:#3498db; margin:0 0 15px 0; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:800;">
-            <img src="https://cdn-icons-png.flaticon.com/128/883/883356.png" class="icon-3d-lg"> MODUL CUTI
+            <img src="https://cdn-icons-png.flaticon.com/128/883/883356.png" class="icon-3d-lg"> MODUL KEBERADAAN
           </h3>
           <div style="text-align:right; margin-bottom:15px;">
               <span onclick="adminCutiLogin()" style="cursor:pointer; font-size:11px; color:#1e3c72; text-decoration:underline; font-weight:700;">Akses Admin</span>
           </div>
           <button class="btn btn-turquoise" onclick="showBorangCuti()">
-              <img src="https://cdn-icons-png.flaticon.com/128/2921/2921222.png" class="icon-3d-std"> MOHON CUTI BAHARU
+              <img src="https://cdn-icons-png.flaticon.com/128/2921/2921222.png" class="icon-3d-std"> BORANG PERMOHONAN
           </button>
           
           <div style="margin-top:20px; border-top:2px solid #e0eafc; padding-top:15px;">
@@ -1323,7 +1323,7 @@
       </div>
 
       <div id="borangCutiPanel" class="cuti-panel-box">
-          <h3 style="color:#1e3c72; margin:0 0 20px 0; font-weight:800;">BORANG CUTI</h3>
+          <h3 style="color:#1e3c72; margin:0 0 20px 0; font-weight:800;">BORANG PERMOHONAN</h3>
           <input type="text" id="cutiNama" placeholder="NAMA PENUH" style="text-transform:uppercase">
           <select id="cutiKategori">
               <option value="" disabled selected>-- PEKERJAAN --</option>
@@ -1351,7 +1351,7 @@
             <img id="cutiBuktiPreview" style="display:none; width:100%; max-height:200px; object-fit:contain; border:2px solid #e0eafc; border-radius:10px; margin-top:10px; background:#ffffff; box-shadow:0 4px 10px rgba(0,0,0,0.1);">
           </div>
           
-          <button id="btnSubmitCuti" class="btn btn-turquoise" onclick="submitCutiForm()">HANTAR PERMOHONAN CUTI</button>
+          <button id="btnSubmitCuti" class="btn btn-turquoise" onclick="submitCutiForm()">HANTAR PERMOHONAN</button>
           <button class="btn btn-cancel" onclick="cancelBorangCuti()">BATAL</button>
       </div>
 
