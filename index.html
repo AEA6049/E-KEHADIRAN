@@ -36,6 +36,13 @@
     let gpsWatchId = null;
     let isCutiModeActive = false;
 
+    function parseDateStringDDMMYYYY(str) {
+       if(!str) return new Date(0);
+       let p = str.split('.');
+       if(p.length === 3) return new Date(p[2], p[1]-1, p[0]);
+       return new Date(str);
+    }
+
     function sendData(data) {
       return new Promise((resolve, reject) => {
         if (!data.clientTime) { data.clientTime = new Date().toISOString(); }
@@ -875,15 +882,18 @@
             return;
         }
         let html = "";
-        let todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' });
+        let todayObj = new Date();
+        todayObj.setHours(0,0,0,0);
         list.forEach(i => {
             let isBatal = i.statusRekod.includes("BATAL");
             let isSah = i.statusPengesahan === "DISAHKAN";
             let iconSah = isSah ? "✔️" : "⏳";
             let pengesahText = isSah ? `(Oleh: ${i.adminPengesah || 'Admin'})` : "";
             let classCard = isBatal ? "cuti-batal" : (isSah ? "cuti-sah" : "");
+            
+            let mulaObj = parseDateStringDDMMYYYY(i.tarikhMula);
             let btnBatal = "";
-            if(!isBatal && i.tarikhMula > todayStr) {
+            if(!isBatal && mulaObj > todayObj) {
                 btnBatal = `<button onclick="batalCutiAction('${i.uuid}', '${i.tarikhMula}')" style="margin-top:5px;background:#e74c3c;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer;box-shadow:0 2px 4px rgba(0,0,0,0.2);">Batal Cuti</button>`;
             }
             let btnBukti = (i.buktiUrl && i.buktiUrl.length > 10) ? `<button onclick="window.open('${i.buktiUrl}', '_blank')" style="margin-top:5px; margin-left:5px; background:#3498db;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer; display:inline-flex; align-items:center; gap:4px;box-shadow:0 2px 4px rgba(0,0,0,0.2);"><img src="https://cdn-icons-png.flaticon.com/128/7268/7268609.png" style="width:12px; height:12px;"> Muat Turun Lampiran</button>` : `<span style="font-size:10px; color:#999; margin-left:5px; margin-top:5px;">Tiada Lampiran</span>`;
@@ -910,8 +920,10 @@
     }
 
     function batalCutiAction(uuid, tarikhMula) {
-        let todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' });
-        if(tarikhMula <= todayStr) {
+        let todayObj = new Date();
+        todayObj.setHours(0,0,0,0);
+        let mulaObj = parseDateStringDDMMYYYY(tarikhMula);
+        if(mulaObj <= todayObj) {
             showModernAlert("Dilarang", "Anda tidak boleh membatalkan cuti untuk tarikh hari ini atau yang lepas.", "error");
             return;
         }
@@ -1180,7 +1192,7 @@
       <div class="top-bar-row">
         <span>
           <img src="https://cdn-icons-png.flaticon.com/128/3652/3652191.png" class="icon-3d-mini"> 
-          <span id="dateDisplay">--/--/--</span>
+          <span id="dateDisplay">--.--.----</span>
         </span> 
         <span style="opacity: 0.5;">|</span> 
         <span>
@@ -1779,16 +1791,16 @@
     document.querySelectorAll('.live-timer[data-masuk]').forEach(el => {
       let masukStr = el.getAttribute('data-masuk');
       if (!masukStr || masukStr === "undefined") { 
-        el.innerHTML = `<img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:14px;height:14px;vertical-align:middle"> Sedang Bertugas: --`; 
+        el.innerHTML = `Sedang Bertugas: --`; 
         return; 
       }
       let masukDate = parseTimeLocal(masukStr);
       if (masukDate) {
         let diff = Math.floor((now - masukDate) / 1000); if (diff < 0) diff = 0;
         let h = Math.floor(diff / 3600); let m = Math.floor((diff % 3600) / 60);
-        el.innerHTML = `<img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:14px;height:14px;vertical-align:middle; filter:brightness(2);"> Sedang Bertugas: ${h}J ${m}M`;
+        el.innerHTML = `Sedang Bertugas: ${h}J ${m}M`;
       } else { 
-        el.innerHTML = `<img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:14px;height:14px;vertical-align:middle"> Sedang Bertugas: 0J 0M`; 
+        el.innerHTML = `Sedang Bertugas: 0J 0M`; 
       }
     });
   }
@@ -1797,7 +1809,11 @@
     setInterval(()=>{
       let n = new Date();
       document.getElementById('clockDisplay').innerText = n.toLocaleTimeString('en-US', { hour12: true, hour: "2-digit", minute: "2-digit", timeZone: 'Asia/Kuala_Lumpur' });
-      document.getElementById('dateDisplay').innerText = n.toLocaleDateString('ms-MY', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kuala_Lumpur' });
+      
+      let dd = String(n.getDate()).padStart(2, '0');
+      let mm = String(n.getMonth() + 1).padStart(2, '0');
+      let yyyy = n.getFullYear();
+      document.getElementById('dateDisplay').innerText = `${dd}.${mm}.${yyyy}`;
     }, 1000);
   }
   
@@ -1849,7 +1865,7 @@
     if (titleText) {
       if (isHistory) {
         let parts = dateVal.split('-');
-        titleText.innerText = "Rekod (" + parts[2] + "/" + parts[1] + ")";
+        titleText.innerText = "Rekod (" + parts[2] + "." + parts[1] + "." + parts[0] + ")";
       } else {
         titleText.innerText = "Rekod Hari Ini";
       }
@@ -1932,10 +1948,10 @@
                   if (diff < 0) diff += 86400; 
                   let hrs = Math.floor(diff / 3600); 
                   let mns = Math.floor((diff % 3600) / 60);
-                  durationHTML = `<span class="live-timer" style="background:linear-gradient(145deg, #27ae60, #2ecc71); border:none; margin-top:5px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:14px;height:14px;vertical-align:middle;filter:brightness(2);"> Jumlah Bertugas: ${hrs}J ${mns}M</span>`;
+                  durationHTML = `<span class="live-timer" style="background:linear-gradient(145deg, #27ae60, #2ecc71); border:none; margin-top:5px;">Jumlah Bertugas: ${hrs}J ${mns}M</span>`;
                 }
               } else if (!isHistory && i.jam && i.jam !== "undefined") {
-                durationHTML = `<span class="live-timer" data-masuk="${i.jam}" style="margin-top:5px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:14px;height:14px;vertical-align:middle;filter:brightness(2);"> Sedang Bertugas: 0J 0M</span>`;
+                durationHTML = `<span class="live-timer" data-masuk="${i.jam}" style="margin-top:5px;">Sedang Bertugas: 0J 0M</span>`;
               }
           }
 
