@@ -18,7 +18,7 @@ function doPost(e) {
   var lock = LockService.getScriptLock();
   try {
     lock.waitLock(30000); 
-  } catch (e) {
+  } catch (err) {
     return sendResponse("error", "Server sibuk, sila cuba sebentar lagi.");
   }
 
@@ -136,8 +136,8 @@ function daftarMasuk(data) {
       status = "PELAWAT"; alasan = data.tujuan || "-";
   }
 
-  // Penstrukturan lajur: 0=Timestamp, 1=Nama, 2=Kategori, 3=Plat, 4=MasaMasuk, 5=MasaKeluar(""), 6=Status, 7=Alasan, 8=GPS Masuk, 9=Foto, 10=GPS Keluar(""), 11=InputDevice
-  sheet.appendRow([now, inputNama, targetSheetName, data.plat || "-", masaString, "", status, alasan, lokasiLink, fotoUrl, "", inputDevice]);
+  // Penstrukturan lajur: 0=Timestamp, 1=Nama, 2=Kategori, 3=Plat, 4=MasaMasuk, 5=MasaKeluar(""), 6=Status, 7=Alasan, 8=GPS Masuk, 9=Foto, 10=GPS Keluar(""), 11=InputDevice, 12=Status Lokasi
+  sheet.appendRow([now, inputNama, targetSheetName, data.plat || "-", masaString, "", status, alasan, lokasiLink, fotoUrl, "", inputDevice, ""]);
   
   var lr = sheet.getLastRow(); 
   if (warnaJam !== "black") {
@@ -205,6 +205,13 @@ function daftarKeluar(data) {
          // REKOD GPS DAFTAR KELUAR DI LAJUR 11 (K) TERMASUK JIKA GPS OFF (akan menghantar koordinat asal/0)
          if (typeof data.lat !== 'undefined' && typeof data.lng !== 'undefined') {
              sheet.getRange(i+1, 11).setValue("http://maps.google.com/maps?q=" + data.lat + "," + data.lng);
+         }
+         
+         // REKOD STATUS LOKASI (DALAM/LUAR/TIADA) DI LAJUR 13 (M)
+         if (data.locStatus) {
+             sheet.getRange(i+1, 13).setValue(data.locStatus);
+         } else {
+             sheet.getRange(i+1, 13).setValue("TIADA");
          }
          
          if(warnaJam !== "black") {
@@ -376,7 +383,6 @@ function getSenaraiHadir(data) {
   var d=SpreadsheetApp.openById(idSheet); 
   var todayStr = Utilities.formatDate(getMalaysiaTime(),"GMT+8","yyyy-MM-dd"); 
   var targetDate = (data && data.targetDate) ? data.targetDate : todayStr;
-  var isToday = (targetDate === todayStr);
   var l=[]; 
   for(var s=0;s<SHEETS_LIST.length;s++){
     var shName = SHEETS_LIST[s];
@@ -385,25 +391,23 @@ function getSenaraiHadir(data) {
     var v=sh.getDataRange().getValues(); 
 
     if (shName === "TIDAK HADIR") {
-        if (!isToday) { 
-            for(var i=1; i<v.length; i++){
-                if (!v[i][0]) continue;
-                try {
-                    var start = Utilities.formatDate(new Date(v[i][3]), "GMT+8", "yyyy-MM-dd");
-                    var end = Utilities.formatDate(new Date(v[i][4]), "GMT+8", "yyyy-MM-dd");
-                    var statusRekod = v[i][8];
-                    if (statusRekod === "AKTIF" && targetDate >= start && targetDate <= end) {
-                        l.push({ nama: v[i][1], kategori: "CUTI", jam: v[i][5], keluar: "TIDAK HADIR", foto: "" });
-                    }
-                } catch(e) {}
-            }
+        for(var i=1; i<v.length; i++){
+            if (!v[i][0]) continue;
+            try {
+                var start = Utilities.formatDate(new Date(v[i][3]), "GMT+8", "yyyy-MM-dd");
+                var end = Utilities.formatDate(new Date(v[i][4]), "GMT+8", "yyyy-MM-dd");
+                var statusRekod = v[i][8];
+                if (statusRekod === "AKTIF" && targetDate >= start && targetDate <= end) {
+                    l.push({ nama: v[i][1], kategori: "CUTI", jam: v[i][5], keluar: "TIDAK HADIR", foto: "", statusSah: v[i][7], admin: v[i][11] });
+                }
+            } catch(e) {}
         }
     } else {
         for(var i=1;i<v.length;i++){ 
           if(!v[i][0]) continue;
           if(Utilities.formatDate(new Date(v[i][0]),"GMT+8","yyyy-MM-dd") == targetDate){ 
-            if (isToday && v[i][5] !== "") continue; 
-            l.push({ nama: v[i][1], kategori: shName, jam: v[i][4], keluar: v[i][5], foto: v[i][9]||"" }); 
+            var locStat = (v[i].length > 12) ? v[i][12] : "TIADA";
+            l.push({ nama: v[i][1], kategori: shName, jam: v[i][4], keluar: v[i][5], foto: v[i][9]||"", locStatus: locStat }); 
           } 
         } 
     }
