@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sistem Pelawat & Kehadiran v26.0 (Daftar Keluar Manual & GPS)</title>
+  <title>Sistem Pelawat & Kehadiran v38.0 (Modul Cuti Penuh)</title>
   
   <script>
-    const API_URL = 'https://script.google.com/macros/s/AKfycbw4vRLiurUDkzWUXbUEuQCBYqOcCOInROf3G6yTrqINd1aLws7P3AJ4MRa3SdsEpKi75Q/exec'; 
+    const API_URL = 'https://script.google.com/macros/s/AKfycbwLPjC7KMwRCGZlsUhwxpxxQPkDiI4vlBIK9rN6sJGeFykm5vPJG2HynV6FrFF0POduNw/exec'; 
     const PASSCODE = "101010";
     const SCHOOL_LAT = 5.250891554235944; 
     const SCHOOL_LNG = 100.75591785106874; 
@@ -72,17 +72,17 @@
       let checkName = locked || (currentSess ? currentSess.nama : null);
       if(!checkName) return;
       
-      let userRecord = list.find(item => item.nama === checkName);
+      let activeRecord = list.find(item => item.nama === checkName && item.kategori !== "CUTI" && (!item.keluar || item.keluar === ""));
 
-      if (userRecord) {
+      if (activeRecord) {
         if (!currentSess || currentSess.nama !== checkName) {
           localStorage.setItem('ehadir_session', JSON.stringify({
-            nama: userRecord.nama,
-            kategori: userRecord.kategori || "GURU", 
+            nama: activeRecord.nama,
+            kategori: activeRecord.kategori || "GURU", 
             date: new Date().toISOString().slice(0,10),
-            avatar: userRecord.avatar || localStorage.getItem('ehadir_user_avatar') || ""
+            avatar: activeRecord.avatar || localStorage.getItem('ehadir_user_avatar') || ""
           }));
-          location.reload(); 
+          checkSession(); 
         }
       } else {
         let queue = JSON.parse(localStorage.getItem('ehadir_offline_queue') || "[]");
@@ -90,7 +90,8 @@
         
         if (currentSess && !isPending) {
           localStorage.removeItem('ehadir_session');
-          location.reload();
+          document.getElementById('dashboardPanel').style.display = 'none';
+          document.getElementById('defaultForm').style.display = 'block';
         }
       }
     }
@@ -108,7 +109,7 @@
         return;
       }
 
-      let isActive = currentList.some(i => i.nama === checkName && !i.isOffline && (!i.keluar || i.keluar === ""));
+      let isActive = currentList.some(i => i.nama === checkName && !i.isOffline && i.kategori !== "CUTI" && (!i.keluar || i.keluar === ""));
       let offlinePending = JSON.parse(localStorage.getItem('ehadir_offline_queue') || "[]").some(q => q.nama === checkName && q.action === "MASUK");
 
       if (isActive || offlinePending) {
@@ -136,7 +137,7 @@
         kat = document.getElementById('kategori').value;
       }
 
-      let isAlreadyActive = currentList.some(i => i.nama === nama && !i.isOffline && (!i.keluar || i.keluar === ""));
+      let isAlreadyActive = currentList.some(i => i.nama === nama && !i.isOffline && i.kategori !== "CUTI" && (!i.keluar || i.keluar === ""));
       if (isAlreadyActive) {
         if (!isAuto) showModernAlert("Sesi Aktif", "Anda belum daftar keluar untuk sesi sebelum ini. Sila klik DAFTAR KELUAR.", "error");
         return;
@@ -225,7 +226,6 @@
             }
           } else {
              let msg = (result.data && result.data.msg) ? result.data.msg : "Data gagal masuk ke Google Sheet. Sila cuba lagi.";
-
              if(!isAuto) showModernAlert("Gagal", msg, "error");
              isSubmitting = false;
              document.getElementById('btnMainSubmit').disabled = false;
@@ -304,7 +304,7 @@
           let response = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) });
           let json = await response.json();
           let list = json.data || json;
-          let record = list.find(item => item.nama === iName && item.jam && (!item.keluar || item.keluar === ""));
+          let record = list.find(item => item.nama === iName && item.kategori !== "CUTI" && item.jam && (!item.keluar || item.keluar === ""));
           
           if (record) {
              namaVal = record.nama;
@@ -331,12 +331,19 @@
       } else {
         let lName = localStorage.getItem('ehadir_locked_name');
         let lKat = localStorage.getItem('ehadir_locked_kat');
-        if (lName && lKat) { namaVal = lName; katVal = lKat; }
-        else {
+        if (lName && lKat) { 
+            namaVal = lName; 
+            katVal = lKat; 
+        } else {
           if(!isAuto) showModernAlert("Tiada Maklumat", "Sila isi Nama & Kategori atau KUNCI nama dahulu untuk daftar keluar.", "error");
           return;
         }
         uuidVal = "MANUAL_OUT_" + Date.now();
+      }
+      
+      if (isAuto && currentList.length > 0) {
+         let activeRec = currentList.find(i => i.nama === namaVal && i.kategori !== "CUTI" && (!i.keluar || i.keluar === ""));
+         if (activeRec && activeRec.uuid) uuidVal = activeRec.uuid;
       }
       
       let alasanValue = isAuto ? "AUTO CHECKOUT (KELUAR KAWASAN)" : "PULANG (MANUAL)";
@@ -344,13 +351,34 @@
 
       let proceed = async () => {
         isSubmitting = true; 
+        let locStatus = "TIADA";
+
         if(!isAuto) { 
           let btn = document.getElementById('btnKeluar') || document.getElementById('btnKeluarMain');
-          if(btn) { btn.disabled = true; btn.innerText = "SEDANG HANTAR..."; }
+          if(btn) { btn.disabled = true; btn.innerText = "MENCARI GPS (3s)..."; }
+          
+          try {
+            await new Promise((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(pos => {
+                let d = calcDist(pos.coords.latitude, pos.coords.longitude, SCHOOL_LAT, SCHOOL_LNG);
+                locStatus = (d <= RADIUS_METER) ? "DALAM" : "LUAR";
+                lastLat = pos.coords.latitude;
+                lastLng = pos.coords.longitude;
+                resolve();
+              }, err => {
+                reject();
+              }, { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 });
+            });
+          } catch(e) {
+            locStatus = "TIADA";
+          }
+          if(btn) btn.innerText = "SEDANG HANTAR...";
+        } else {
+          locStatus = "LUAR";
         }
 
         try {
-          const payload = { action: "KELUAR", passcode: PASSCODE, nama: namaVal.toUpperCase(), alasan: alasanValue, lat: lastLat, lng: lastLng, clientTime: new Date().toISOString(), uuid: sessionUUID };
+          const payload = { action: "KELUAR", passcode: PASSCODE, nama: namaVal.toUpperCase(), alasan: alasanValue, lat: lastLat, lng: lastLng, clientTime: new Date().toISOString(), uuid: sessionUUID, locStatus: locStatus };
           
           await sendData(payload);
           
@@ -383,7 +411,7 @@
       showModernAlert("Pengesahan Admin", "Passcode untuk keluarkan " + namaUser + ":", "prompt", function(pass) {
         if (pass !== PASSCODE) { showModernAlert("Gagal", "Passcode salah.", "error"); return; }
         
-        sendData({ action: "KELUAR", passcode: PASSCODE, nama: namaUser, alasan: "Manual Admin", lat: lastLat, lng: lastLng, clientTime: new Date().toISOString() })
+        sendData({ action: "KELUAR", passcode: PASSCODE, nama: namaUser, alasan: "Manual Admin", lat: lastLat, lng: lastLng, clientTime: new Date().toISOString(), locStatus: "TIADA" })
         .then(res => { 
           loadList(); 
         });
@@ -419,8 +447,8 @@
     function monitorAutoLogic() {
       if (isCutiModeActive) return;
 
-      let MS_IN_DELAY = (typeof MINIT_ANTI_SPAM_MASUK !== 'undefined' ? MINIT_ANTI_SPAM_MASUK : 5) * 60 * 1000;
-      let MS_OUT_DELAY = (typeof MINIT_DELAY_KELUAR !== 'undefined' ? MINIT_DELAY_KELUAR : 10) * 60 * 1000;
+      let MS_IN_DELAY = (typeof MINIT_ANTI_SPAM_MASUK !== 'undefined' ? MINIT_ANTI_SPAM_MASUK : 1) * 60 * 1000;
+      let MS_OUT_DELAY = (typeof MINIT_DELAY_KELUAR !== 'undefined' ? MINIT_DELAY_KELUAR : 1) * 60 * 1000;
 
       let session = JSON.parse(localStorage.getItem('ehadir_session'));
       let locked = localStorage.getItem('ehadir_locked_name');
@@ -431,9 +459,15 @@
       let isBlocked = localStorage.getItem('ehadir_auto_in_blocked'); 
 
       let checkName = locked || (session ? session.nama : null);
-      let isAlreadyActiveDB = false;
+      
+      let isSedangHadir = false;
+      let isSudahKeluar = false;
+      let isTidakHadir = false;
+      
       if (checkName) {
-        isAlreadyActiveDB = currentList.some(i => i.nama === checkName && !i.isOffline && (!i.keluar || i.keluar === ""));
+        isSedangHadir = currentList.some(i => i.nama === checkName && i.kategori !== "CUTI" && (!i.keluar || i.keluar === ""));
+        isSudahKeluar = currentList.some(i => i.nama === checkName && i.kategori !== "CUTI" && i.keluar && i.keluar !== "");
+        isTidakHadir = currentList.some(i => i.nama === checkName && i.kategori === "CUTI");
       }
 
       if (isInZone) {
@@ -444,10 +478,14 @@
            statusEl.style.background = "#e8f5e9";
          }
          
-         if (isBlocked || isAlreadyActiveDB) {
+         if (isBlocked || isSedangHadir || isSudahKeluar || isTidakHadir) {
            if (statusEl && !statusEl.innerHTML.includes('SEMAK & AKTIFKAN')) {
-             if (isAlreadyActiveDB) {
-               statusEl.innerHTML += `<br><span style="font-size:9px; color:#e67e22;">AUTO-IN DISABLE (ANDA BELUM DAFTAR KELUAR)</span>`;
+             if (isSedangHadir) {
+               statusEl.innerHTML += `<br><span style="font-size:9px; color:#e67e22;">AUTO-IN DISABLE (SEDANG HADIR)</span>`;
+             } else if (isSudahKeluar) {
+               statusEl.innerHTML += `<br><span style="font-size:9px; color:#e67e22;">AUTO-IN DISABLE (SUDAH KELUAR HARI INI)</span>`;
+             } else if (isTidakHadir) {
+               statusEl.innerHTML += `<br><span style="font-size:9px; color:#e67e22;">AUTO-IN DISABLE (TIDAK HADIR/CUTI)</span>`;
              } else {
                statusEl.innerHTML += `<br><span style="font-size:9px; color:#e67e22;">AUTO-IN DISABLE (KELUAR > ${RADIUS_RESET_AUTO_IN}M UNTUK RESET)</span>`;
              }
@@ -468,17 +506,17 @@
         if(wBox) wBox.style.display = "none";
         hasNotifiedExit = false; 
         
-        if (!session && locked && lockedKat && !hasNotifiedEntry) {
+        if (!session && locked && lockedKat && !hasNotifiedEntry && !isSedangHadir && !isSudahKeluar && !isTidakHadir) {
           hasNotifiedEntry = true;
           sendNotification("ANDA SUDAH SAMPAI!", "Sila klik di sini untuk buka aplikasi", "wake-up-entry");
         }
 
-        if (!session && locked && lockedKat && !isSubmitting && !isAlreadyActiveDB) {
+        if (!session && locked && lockedKat && !isSubmitting && !isSedangHadir && !isSudahKeluar && !isTidakHadir) {
           if (inZoneStart > 0) {
             let elapsed = now - inZoneStart;
             let remainingSec = Math.ceil((MS_IN_DELAY - elapsed) / 1000);
             
-            if(statusEl && !statusEl.innerHTML.includes('SEMAK & AKTIFKAN')) statusEl.innerHTML += ` <br>[AUTO-PUNCH: ${remainingSec}s]`;
+            if(statusEl && !statusEl.innerHTML.includes('SEMAK & AKTIFKAN')) statusEl.innerHTML += ` <br>[AUTO-PUNCH IN: ${remainingSec}s]`;
             
             if (remainingSec <= 0) {
               hantarMasuk(true);
@@ -490,30 +528,33 @@
       else {
         hasNotifiedEntry = false; 
 
-        if (session && !hasNotifiedExit) {
-          hasNotifiedExit = true;
-          sendNotification("ANDA TELAH KELUAR KAWASAN!", "Anda dikesan telah meninggalkan pejabat. Klik di sini untuk sahkan waktu balik (Punch Out).", "wake-up-exit");
-        }
+        if (isSedangHadir) {
+          if (!hasNotifiedExit) {
+            hasNotifiedExit = true;
+            sendNotification("ANDA TELAH KELUAR KAWASAN!", "Anda dikesan telah meninggalkan pejabat. Auto Punch-Out akan bermula.", "wake-up-exit");
+          }
 
-        if (session && !isSubmitting) {
-           if (outZoneStart > 0) {
-             let elapsed = now - outZoneStart;
-             let remainingSec = Math.ceil((MS_OUT_DELAY - elapsed) / 1000);
-             
-             let warnBox = document.getElementById('warningBox');
-             if(warnBox) {
-               warnBox.style.display = "block";
-               warnBox.innerHTML = `AMARAN! KELUAR ZON.<br>AUTO PUNCH-OUT DALAM <span style="font-size:1.5em">${remainingSec}</span> S`;
-             }
+          if (!isSubmitting) {
+             if (outZoneStart > 0) {
+               let elapsed = now - outZoneStart;
+               let remainingSec = Math.ceil((MS_OUT_DELAY - elapsed) / 1000);
+               
+               let warnBox = document.getElementById('warningBox');
+               if(warnBox) {
+                 warnBox.style.display = "block";
+                 warnBox.innerHTML = `AMARAN! KELUAR ZON.<br>AUTO PUNCH-OUT DALAM <span style="font-size:1.5em">${remainingSec}</span> S`;
+               }
 
-             if (remainingSec <= 0) {
-               hantarKeluar(true);
-               outZoneStart = 0;
+               if (remainingSec <= 0) {
+                 hantarKeluar(true);
+                 outZoneStart = 0;
+               }
              }
-           }
+          }
         } else {
            let wBox = document.getElementById('warningBox');
            if(wBox) wBox.style.display = "none";
+           outZoneStart = 0;
         }
       }
     }
@@ -845,13 +886,19 @@
             if(!isBatal && i.tarikhMula > todayStr) {
                 btnBatal = `<button onclick="batalCutiAction('${i.uuid}', '${i.tarikhMula}')" style="margin-top:5px;background:#e74c3c;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer;">Batal Cuti</button>`;
             }
+            let btnBukti = (i.buktiUrl && i.buktiUrl.length > 10) ? `<button onclick="window.open('${i.buktiUrl}', '_blank')" style="margin-top:5px; margin-left:5px; background:#3498db;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><img src="https://cdn-icons-png.flaticon.com/128/7268/7268609.png" style="width:12px; height:12px;"> Muat Turun Lampiran</button>` : `<span style="font-size:10px; color:#999; margin-left:5px; margin-top:5px;">Tiada Lampiran</span>`;
+            let alasanText = i.alasan ? `<div style="color:#888; font-style:italic; margin-bottom:5px; font-size:11px;">Sebab: ${i.alasan}</div>` : "";
+            
             html += `<div class="cuti-card ${classCard}">
                 <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
                     <strong>${i.jenisCuti} ${iconSah}</strong>
-                    <span style="font-size:10px; color:#555;">${i.tarikhMula} hngga ${i.tarikhTamat}</span>
+                    <span style="font-size:10px; color:#555;">${i.tarikhMula} hingga ${i.tarikhTamat}</span>
                 </div>
                 <div style="color:#666; margin-bottom:5px;">Status: ${i.statusRekod} | ${i.statusPengesahan} ${pengesahText}</div>
-                ${btnBatal}
+                ${alasanText}
+                <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px;">
+                    ${btnBatal} ${btnBukti}
+                </div>
             </div>`;
         });
         container.innerHTML = html;
@@ -872,44 +919,12 @@
                 if(!res.offline && res.data && res.data.result === "success") {
                     showModernAlert("Berjaya", "Cuti dibatalkan.", "success");
                     loadCutiHistory();
-                    loadAbsentList(); 
+                    loadList(); 
                 } else {
                     showModernAlert("Ralat", "Gagal batal.", "error");
                 }
             } catch(e) {}
         });
-    }
-
-    async function loadAbsentList() {
-        let container = document.getElementById('topAbsentContainer');
-        let listEl = document.getElementById('topAbsentList');
-        try {
-            let res = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_CUTI", mode: "public", passcode: PASSCODE}) });
-            let json = await res.json();
-            let list = json.data || json;
-            if(list.length > 0) {
-                container.style.display = 'block';
-                let html = "";
-                list.forEach(i => {
-                    let isSah = (i.statusPengesahan === "DISAHKAN");
-                    let statusColor = isSah ? "#27ae60" : "#e67e22";
-                    
-                    let iconSah = isSah ? "<span style='color:#27ae60;' title='Telah Disahkan'>✔️</span>" : "<span style='color:#e67e22;' title='Belum Disahkan'>⏳</span>";
-                    let pengesahText = isSah ? `<div style="color:#27ae60; font-size:10px; font-weight:bold; margin-top:3px; background:#d4edda; display:inline-block; padding:2px 6px; border-radius:4px;">DISAHKAN OLEH: ${i.adminPengesah || "ADMIN"}</div>` : `<div style="color:#e67e22; font-size:10px; font-weight:bold; margin-top:3px; background:#fcf3cf; display:inline-block; padding:2px 6px; border-radius:4px;">BELUM DISAHKAN</div>`;
-
-                    html += `<div style="background:#fff; border-left:4px solid ${statusColor}; padding:8px 12px; border-radius:6px; margin-bottom:6px; font-size:11px; box-shadow:0 2px 4px rgba(0,0,0,0.05); text-align:left;">
-                        <div style="display:flex; justify-content:space-between; align-items:center;">
-                            <strong style="color:#333; font-size:12px;">${i.nama} ${iconSah}</strong>
-                        </div>
-                        ${pengesahText}
-                        <div style="color:#555; margin-top:4px;">${i.pekerjaan} | ${i.jenisCuti}</div>
-                    </div>`;
-                });
-                listEl.innerHTML = html;
-            } else {
-                container.style.display = 'none';
-            }
-        } catch(e) { console.log("Error loading absent list"); }
     }
 
     function adminCutiLogin() {
@@ -951,7 +966,7 @@
                 let isSah = i.statusPengesahan === "DISAHKAN";
                 let btnSah = !isSah ? `<button onclick="sahkanCuti('${i.uuid}')" style="margin-top:5px;background:#27ae60;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer;">Sahkan Cuti</button>` : `<span style='color:#27ae60;font-size:10px;font-weight:bold;'>DISAHKAN OLEH: ${i.adminPengesah} ✔️</span>`;
                 
-                let btnBukti = (i.buktiUrl && i.buktiUrl.length > 10) ? `<button onclick="viewCutiBukti('${i.buktiUrl}')" style="margin-top:5px; margin-left:5px; background:#3498db;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer;">📎 Lihat Lampiran</button>` : `<span style="font-size:10px; color:#999; margin-left:5px;">Tiada Lampiran</span>`;
+                let btnBukti = (i.buktiUrl && i.buktiUrl.length > 10) ? `<button onclick="viewCutiBukti('${i.buktiUrl}')" style="margin-top:5px; margin-left:5px; background:#3498db;color:white;border:none;padding:5px 10px;border-radius:5px;font-size:10px;cursor:pointer; display:inline-flex; align-items:center; gap:4px;"><img src="https://cdn-icons-png.flaticon.com/128/7268/7268609.png" style="width:12px; height:12px;"> Lihat Lampiran</button>` : `<span style="font-size:10px; color:#999; margin-left:5px;">Tiada Lampiran</span>`;
 
                 html += `<div class="cuti-card ${isSah ? 'cuti-sah' : ''}">
                     <div style="display:flex; justify-content:space-between;"><strong>${i.nama} (${i.pekerjaan})</strong></div>
@@ -972,7 +987,7 @@
             let res = await sendData({action: "SAH_CUTI", uuid: uuid, passcode: PASSCODE, adminName: adminName});
             if(!res.offline && res.data && res.data.result === "success") {
                 loadAdminCutiList();
-                loadAbsentList();
+                loadList();
             }
         } catch(e) {}
     }
@@ -1009,6 +1024,7 @@
     .avatar-btn { right: 48px; background: transparent; }
 
     .btn-yellow { background: #f1c40f !important; box-shadow: 0 0 10px rgba(241, 196, 15, 0.5); border: 2px solid #f39c12; }
+    .btn-turquoise { background: linear-gradient(to right, #1abc9c, #16a085) !important; color: white !important; }
 
     .avatar-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; max-height: 300px; overflow-y: auto; padding: 10px; }
     .avatar-option { width: 100%; aspect-ratio: 1/1; cursor: pointer; border-radius: 50%; border: 2px solid transparent; transition: 0.2s; padding: 2px; background: #f8f9fa; }
@@ -1056,7 +1072,7 @@
     
     .list-header { display: flex; justify-content: space-between; align-items: center; margin-top: 25px; border-bottom: 2px solid #f1f1f1; padding-bottom: 10px; margin-bottom: 10px; }
     .list-header span { font-weight: 700; color: #1e3c72; font-size: 14px; display: flex; align-items: center; gap: 5px; }
-    .list-container { text-align: left; margin-top: 5px; max-height: 300px; overflow-y: auto; }
+    .list-container { text-align: left; margin-top: 5px; max-height: 400px; overflow-y: auto; }
     
     .user-card { background: #fff; padding: 12px; border: 1px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; border-left: 4px solid #1e3c72; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.03); }
     .user-card.offline-item { border-left: 4px solid #e67e22; background: #fffcf5; }
@@ -1235,7 +1251,7 @@
         </button>
         
         <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px; display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
-          <button id="btnCutiDash" class="btn btn-yellow" onclick="openCutiWorkflow()" style="margin-top:0; color:#333; font-size:12px;">
+          <button id="btnCutiDash" class="btn btn-turquoise" onclick="openCutiWorkflow()" style="margin-top:0; font-size:12px;">
             <img src="https://cdn-icons-png.flaticon.com/128/6861/6861362.png" class="icon-3d-std"> URUS CUTI
           </button>
           <button class="btn btn-pelawat" onclick="showPelawatForm()" style="margin-top:0; font-size:12px;">
@@ -1284,8 +1300,8 @@
         </button>
 
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
-          <button id="btnCutiMain" class="btn btn-keluar" onclick="openCutiWorkflow()" style="margin-top:0;">
-            <img src="https://cdn-icons-png.flaticon.com/128/6861/6861362.png" class="icon-3d-std"> MOHON CUTI
+          <button id="btnCutiMain" class="btn btn-turquoise" onclick="openCutiWorkflow()" style="margin-top:0;">
+            <img src="https://cdn-icons-png.flaticon.com/128/883/883356.png" class="icon-3d-std"> MOHON CUTI
           </button>
           <button id="btnPelawatMain" class="btn btn-pelawat" onclick="showPelawatForm()" style="margin-top:0;">
             <img src="https://cdn-icons-png.flaticon.com/128/3135/3135768.png" class="icon-3d-std"> PELAWAT
@@ -1295,19 +1311,19 @@
       </div>
 
       <div id="cutiMainPanel" class="cuti-panel-box">
-          <h3 style="color:#e74c3c; margin:0 0 10px 0; display:flex; align-items:center; justify-content:center; gap:5px;">
-            <img src="https://cdn-icons-png.flaticon.com/128/6861/6861362.png" class="icon-3d-lg"> MODUL CUTI
+          <h3 style="color:#1abc9c; margin:0 0 10px 0; display:flex; align-items:center; justify-content:center; gap:5px;">
+            <img src="https://cdn-icons-png.flaticon.com/128/883/883356.png" class="icon-3d-lg"> MODUL CUTI
           </h3>
           <div style="text-align:right; margin-bottom:10px;">
               <span onclick="adminCutiLogin()" style="cursor:pointer; font-size:10px; color:#7f8c8d; text-decoration:underline;">Akses Admin</span>
           </div>
-          <button class="btn" style="background:#34495e;" onclick="showBorangCuti()">
+          <button class="btn btn-turquoise" onclick="showBorangCuti()">
               <img src="https://cdn-icons-png.flaticon.com/128/2921/2921222.png" class="icon-3d-std"> MOHON CUTI BAHARU
           </button>
           
           <div style="margin-top:15px; border-top:1px solid #eee; padding-top:10px;">
               <h4 style="margin:0 0 10px 0; font-size:13px; color:#2c3e50; text-align:left;">Sejarah Cuti Anda</h4>
-              <div id="cutiHistoryList" style="max-height:200px; overflow-y:auto;"></div>
+              <div id="cutiHistoryList" style="max-height:300px; overflow-y:auto; padding-right:5px;"></div>
           </div>
           <button class="btn btn-cancel" onclick="exitCutiModule()">KEMBALI</button>
       </div>
@@ -1341,7 +1357,7 @@
             <img id="cutiBuktiPreview" style="display:none; width:100%; max-height:150px; object-fit:contain; border:1px solid #ccc; border-radius:5px; margin-top:5px; background:#f9f9f9;">
           </div>
           
-          <button id="btnSubmitCuti" class="btn" style="background:#e74c3c;" onclick="submitCutiForm()">HANTAR PERMOHONAN CUTI</button>
+          <button id="btnSubmitCuti" class="btn btn-turquoise" onclick="submitCutiForm()">HANTAR PERMOHONAN CUTI</button>
           <button class="btn btn-cancel" onclick="cancelBorangCuti()">BATAL</button>
       </div>
 
@@ -1377,13 +1393,7 @@
         <button class="btn btn-cancel" onclick="cancelPelawat()">BATAL</button>
       </div>
 
-  <div id="topAbsentContainer" style="display:none; margin-bottom: 20px;">
-  <div style="font-size:12px; font-weight:bold; color:#c0392b; margin-bottom:8px; border-bottom: 2px solid #fadbd8; padding-bottom:5px; text-align:left;">
-    <span style="font-size: 16px; vertical-align: middle; margin-right: 5px;">💐</span> SENARAI TIDAK HADIR HARI INI
-  </div>
-  </div>
-        <div id="topAbsentList"></div>
-      </div>
+    </div>
 
       <div class="list-header">
         <span>
@@ -1424,6 +1434,12 @@
       if (!refreshing) {
         refreshing = true;
         window.location.reload();
+      }
+    });
+    
+    navigator.serviceWorker.addEventListener('message', event => {
+      if (event.data && event.data.type === 'SYNC_OFFLINE_DATA') {
+        syncOfflineData();
       }
     });
   }
@@ -1570,8 +1586,7 @@
     getHijriDate();
     initLockName(); 
     initAvatar(); 
-    initBackgroundService(); 
-    loadAbsentList();
+    initBackgroundService();
     
     document.getElementById('nama').addEventListener('input', validateFormState);
 
@@ -1819,7 +1834,10 @@
       let savedAvatar = s.avatar || localStorage.getItem('ehadir_user_avatar');
       if(savedAvatar) document.getElementById('userAvatarDash').src = savedAvatar;
       updateDashboardInfo(); 
-    } 
+    } else {
+      document.getElementById('dashboardPanel').style.display = 'none'; 
+      document.getElementById('defaultForm').style.display = 'block'; 
+    }
   }
 
   function formatAppTime(val) {
@@ -1863,7 +1881,7 @@
       renderList(currentList);
       if (!isHistory) {
         checkAutoStatus(currentList);
-        validateFormState();
+        validateFormState;
       }
     }).catch(() => { renderList(offlineItems); });
   }
@@ -1885,55 +1903,114 @@
       "CUTI": "#e74c3c"
     };
 
-    items.forEach((i, idx) => { 
-      let imgBtn = (i.kategori === "PELAWAT" && i.foto) ? `<span class="icon-btn" onclick="viewImage(${idx})"><img src="https://cdn-icons-png.flaticon.com/128/3342/3342137.png" class="icon-3d-mini"></span>` : "";
-      let xBtn = isHistory ? "" : `<span class="icon-btn" style="border-color:#fadbd8;" onclick="keluarManual('${i.nama}')"><img src="https://cdn-icons-png.flaticon.com/128/6861/6861362.png" class="icon-3d-mini"></span>`;
-      let offlineClass = i.isOffline ? "offline-item" : "";
-      let offlineIcon = i.isOffline ? `<img src="https://cdn-icons-png.flaticon.com/128/159/159604.png" class="icon-3d-mini" title="Menunggu Sync"> ` : "";
-      
-      let nameColor = catColors[i.kategori] || "#2c3e50";
+    let hadirAktif = [];
+    let daftarKeluar = [];
+    let tidakHadir = [];
 
-      let displayMasuk = formatAppTime(i.jam);
-      let displayKeluar = formatAppTime(i.keluar);
-
-      let durationHTML = "";
-      if (i.kategori !== "CUTI") {
-          if (i.jam && i.keluar && i.keluar !== "" && i.keluar !== "undefined") {
-            let dMasuk = parseTimeLocal(i.jam);
-            let dKeluar = parseTimeLocal(i.keluar);
-            if (dMasuk && dKeluar) {
-              let diff = Math.floor((dKeluar - dMasuk) / 1000); 
-              if (diff < 0) diff += 86400; 
-              let h = Math.floor(diff / 3600); 
-              let m = Math.floor((diff % 3600) / 60);
-              durationHTML = `<span class="live-timer" style="background:#e8f5e9; color:#27ae60; border-color:#c3e6cb; margin-top:2px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:12px;height:12px;vertical-align:middle"> Jumlah Bertugas: ${h}J ${m}M</span>`;
-            }
-          } else if (!isHistory && i.jam && i.jam !== "undefined") {
-            durationHTML = `<span class="live-timer" data-masuk="${i.jam}" style="margin-top:2px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:12px;height:12px;vertical-align:middle"> Sedang Bertugas: 0J 0M</span>`;
-          }
-      }
-
-      let detailsHTML = "";
+    items.forEach((i, globalIdx) => {
+      i._globalIdx = globalIdx; 
       if (i.kategori === "CUTI") {
-          detailsHTML = `<div style="display:flex; align-items:center; gap:5px;"><span style="font-weight:600; color:#e74c3c;">TIDAK HADIR / CUTI</span></div>
-               <div style="font-size:11px; color:#555; background:#fadbd8; padding:2px 6px; border-radius:4px; border:1px solid #e74c3c;">Sebab / Jenis: <b>${i.jam}</b></div>`;
+         tidakHadir.push(i);
+      } else if (!i.keluar || i.keluar === "" || i.keluar === "undefined") {
+         hadirAktif.push(i);
       } else {
-          detailsHTML = `<div style="display:flex; align-items:center; gap:5px;"><span style="font-weight:600; color:#1e3c72;">${i.kategori}</span></div>
-               <div style="font-size:11px; color:#555; background:#f8f9fa; padding:2px 6px; border-radius:4px; border:1px solid #eee;">Masuk: <b>${displayMasuk}</b> | Keluar: <b>${displayKeluar}</b></div>
-               ${durationHTML}`;
+         daftarKeluar.push(i);
       }
+    });
 
-      h += `<div class="user-card ${offlineClass}">
-          <div style="display:flex; align-items:center; width:100%;">
-            <div class="user-info">
-              <strong style="color:${nameColor}">${offlineIcon}${i.nama}</strong>
-              <div class="user-details">${detailsHTML}</div>
-            </div>
-          </div>
-          <div class="list-actions">${imgBtn}${xBtn}</div>
-          </div>`; 
-    }); 
-    document.getElementById('listContainer').innerHTML = h || `<div style='padding:20px; color:#999; font-size:12px;'>Tiada rekod ${isHistory ? 'pada tarikh ini' : 'hari ini'}.</div>`; 
+    const generateCards = (list) => {
+       let html = "";
+       list.forEach(i => {
+          let idx = i._globalIdx;
+          let imgBtn = (i.kategori === "PELAWAT" && i.foto) ? `<span class="icon-btn" onclick="viewImage(${idx})"><img src="https://cdn-icons-png.flaticon.com/128/3342/3342137.png" class="icon-3d-mini"></span>` : "";
+          let xBtn = (isHistory || i.kategori === "CUTI" || i.keluar) ? "" : `<span class="icon-btn" style="border-color:#fadbd8;" onclick="keluarManual('${i.nama}')"><img src="https://cdn-icons-png.flaticon.com/128/6861/6861362.png" class="icon-3d-mini"></span>`;
+          let offlineClass = i.isOffline ? "offline-item" : "";
+          let offlineIcon = i.isOffline ? `<img src="https://cdn-icons-png.flaticon.com/128/159/159604.png" class="icon-3d-mini" title="Menunggu Sync"> ` : "";
+          
+          let nameColor = catColors[i.kategori] || "#2c3e50";
+
+          let displayMasuk = formatAppTime(i.jam);
+          let displayKeluar = formatAppTime(i.keluar);
+
+          let durationHTML = "";
+          if (i.kategori !== "CUTI") {
+              if (i.jam && i.keluar && i.keluar !== "" && i.keluar !== "undefined") {
+                let dMasuk = parseTimeLocal(i.jam);
+                let dKeluar = parseTimeLocal(i.keluar);
+                if (dMasuk && dKeluar) {
+                  let diff = Math.floor((dKeluar - dMasuk) / 1000); 
+                  if (diff < 0) diff += 86400; 
+                  let hrs = Math.floor(diff / 3600); 
+                  let mns = Math.floor((diff % 3600) / 60);
+                  durationHTML = `<span class="live-timer" style="background:#e8f5e9; color:#27ae60; border-color:#c3e6cb; margin-top:2px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:12px;height:12px;vertical-align:middle"> Jumlah Bertugas: ${hrs}J ${mns}M</span>`;
+                }
+              } else if (!isHistory && i.jam && i.jam !== "undefined") {
+                durationHTML = `<span class="live-timer" data-masuk="${i.jam}" style="margin-top:2px;"><img src="https://cdn-icons-png.flaticon.com/128/2972/2972531.png" style="width:12px;height:12px;vertical-align:middle"> Sedang Bertugas: 0J 0M</span>`;
+              }
+          }
+
+          let detailsHTML = "";
+          if (i.kategori === "CUTI") {
+              let isSah = i.statusSah === "DISAHKAN";
+              let pengesahText = isSah ? `<div style="color:#27ae60; font-size:10px; font-weight:bold; margin-top:3px; background:#d4edda; display:inline-block; padding:2px 6px; border-radius:4px;">DISAHKAN OLEH: ${i.admin || "ADMIN"}</div>` : `<div style="color:#e67e22; font-size:10px; font-weight:bold; margin-top:3px; background:#fcf3cf; display:inline-block; padding:2px 6px; border-radius:4px;">BELUM DISAHKAN</div>`;
+
+              detailsHTML = `<div style="display:flex; align-items:center; gap:5px;"><span style="font-weight:600; color:#e74c3c;">JENIS CUTI: ${i.jam}</span></div>${pengesahText}`;
+          } else {
+              let locIndicator = "";
+              if (i.keluar && i.keluar !== "" && i.keluar !== "undefined") {
+                  if (i.locStatus === "DALAM") locIndicator = " <span title='Dalam Kawasan' style='font-size:12px;'>🔵</span>";
+                  else if (i.locStatus === "LUAR") locIndicator = " <span title='Luar Kawasan' style='font-size:12px;'>🔴</span>";
+                  else locIndicator = " <span title='GPS Tiada/Ralat' style='font-size:12px;'>🟡</span>";
+              }
+
+              detailsHTML = `<div style="display:flex; align-items:center; gap:5px;"><span style="font-weight:600; color:#1e3c72;">${i.kategori}</span></div>
+                   <div style="font-size:11px; color:#555; background:#f8f9fa; padding:2px 6px; border-radius:4px; border:1px solid #eee;">Masuk: <b>${displayMasuk}</b> | Keluar: <b>${displayKeluar}</b>${locIndicator}</div>
+                   ${durationHTML}`;
+          }
+
+          html += `<div class="user-card ${offlineClass}">
+              <div style="display:flex; align-items:center; width:100%;">
+                <div class="user-info">
+                  <strong style="color:${nameColor}">${offlineIcon}${i.nama}</strong>
+                  <div class="user-details">${detailsHTML}</div>
+                </div>
+              </div>
+              <div class="list-actions">${imgBtn}${xBtn}</div>
+              </div>`; 
+       });
+       return html;
+    };
+
+    if (tidakHadir.length > 0) {
+       h += `<div style="font-size:12px; font-weight:bold; color:#c0392b; margin-top:10px; margin-bottom:8px; border-bottom: 2px solid #fadbd8; padding-bottom:5px; text-align:left;">
+          <span style="font-size: 16px; vertical-align: middle; margin-right: 5px;">💐</span> SENARAI TIDAK HADIR (${tidakHadir.length})
+        </div>`;
+       h += generateCards(tidakHadir);
+    }
+
+    if (hadirAktif.length > 0) {
+       h += `<div style="font-size:12px; font-weight:bold; color:#27ae60; margin-top:15px; margin-bottom:8px; border-bottom: 2px solid #c3e6cb; padding-bottom:5px; text-align:left;">
+          <span style="font-size: 16px; vertical-align: middle; margin-right: 5px;">🟢</span> SEDANG HADIR (${hadirAktif.length})
+        </div>`;
+       h += generateCards(hadirAktif);
+    } else if (!isHistory) {
+       h += `<div style="font-size:12px; font-weight:bold; color:#27ae60; margin-top:15px; margin-bottom:8px; border-bottom: 2px solid #c3e6cb; padding-bottom:5px; text-align:left;">
+          <span style="font-size: 16px; vertical-align: middle; margin-right: 5px;">🟢</span> SEDANG HADIR (0)
+        </div><div style='padding:10px; color:#999; font-size:11px; text-align:center;'>Tiada rekod sedang hadir.</div>`;
+    }
+
+    if (daftarKeluar.length > 0) {
+       h += `<div style="font-size:12px; font-weight:bold; color:#f39c12; margin-top:15px; margin-bottom:8px; border-bottom: 2px solid #ffeeba; padding-bottom:5px; text-align:left;">
+          <span style="font-size: 16px; vertical-align: middle; margin-right: 5px;">🔴</span> SUDAH DAFTAR KELUAR (${daftarKeluar.length})
+        </div>`;
+       h += generateCards(daftarKeluar);
+    }
+
+    if (items.length === 0) {
+        h = `<div style='padding:20px; color:#999; font-size:12px; text-align:center;'>Tiada rekod ${isHistory ? 'pada tarikh ini' : 'hari ini'}.</div>`;
+    }
+
+    document.getElementById('listContainer').innerHTML = h; 
     if (!isHistory) updateLiveTimers();
   }
 
