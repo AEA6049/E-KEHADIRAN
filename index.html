@@ -3,9 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- PENTING: Anti-Cache Meta Tags ditambah untuk mengelakkan peranti menyimpan versi lama -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
   <title>Sistem Pelawat & Kehadiran v38.0 (Modul Cuti Penuh)</title>
   
   <script>
+    // Trik untuk bypass cache browser yang degil jika pengguna tekan butang 'Back'
+    if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_BACK_FORWARD) {
+        window.location.reload();
+    }
+
     const API_URL = 'https://script.google.com/macros/s/AKfycbxToetJClnt1UUCF7imtPvsi_RWzNTiJ6HdeBsfXRJIEoOTsAqERGPLlzOPVOjEDklR/exec'; 
     const PASSCODE = "101010";
     const SCHOOL_LAT = 5.250891554235944; 
@@ -35,6 +44,11 @@
     let hasNotifiedExit = false;
     let gpsWatchId = null;
     let isCutiModeActive = false;
+
+    function getTodayStr() {
+      let d = new Date();
+      return String(d.getDate()).padStart(2, '0') + '.' + String(d.getMonth() + 1).padStart(2, '0') + '.' + d.getFullYear();
+    }
 
     function parseDateStringDDMMYYYY(str) {
        if(!str) return new Date(0);
@@ -86,7 +100,7 @@
           localStorage.setItem('ehadir_session', JSON.stringify({
             nama: activeRecord.nama,
             kategori: activeRecord.kategori || "GURU", 
-            date: new Date().toISOString().slice(0,10),
+            date: getTodayStr(),
             avatar: activeRecord.avatar || localStorage.getItem('ehadir_user_avatar') || ""
           }));
           checkSession(); 
@@ -186,7 +200,6 @@
                 resolve();
               }
             }, err => {
-              // Fallback to radar coordinates if direct fetch fails but we are already marked inZone
               if (isInZone && lastLat !== 0) {
                 resolve();
               } else {
@@ -213,7 +226,7 @@
 
         if (result.offline) {
           if(!isAuto) showModernAlert("Mod Offline", "Data disimpan dalam telefon.", "info");
-          localStorage.setItem('ehadir_session', JSON.stringify({nama: nama, kategori: kat, date: now.toISOString().slice(0,10), uuid: uniqueID, avatar: savedAvatar}));
+          localStorage.setItem('ehadir_session', JSON.stringify({nama: nama, kategori: kat, date: getTodayStr(), uuid: uniqueID, avatar: savedAvatar}));
           localStorage.removeItem('ehadir_auto_in_blocked');
           location.reload();
         } else {
@@ -258,7 +271,7 @@
        await new Promise(r => setTimeout(r, 2000));
 
        try {
-         let response = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) });
+         let response = await fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) });
          let json = await response.json();
          let list = json.data || json;
          let record = list.find(item => item.nama === nama && item.jam && item.jam !== "");
@@ -270,7 +283,7 @@
            } else {
              showModernAlert("Berjaya", "Data disahkan masuk dalam sistem!", "success");
            }
-           localStorage.setItem('ehadir_session', JSON.stringify({nama: nama, kategori: kat, date: new Date().toISOString().slice(0,10), uuid: uuid, avatar: avatar}));
+           localStorage.setItem('ehadir_session', JSON.stringify({nama: nama, kategori: kat, date: getTodayStr(), uuid: uuid, avatar: avatar}));
            localStorage.removeItem('ehadir_auto_in_blocked');
            setTimeout(() => location.reload(), 1500);
          } else {
@@ -302,7 +315,7 @@
         isSubmitting = true;
 
         try {
-          let response = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) });
+          let response = await fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) });
           let json = await response.json();
           let list = json.data || json;
           let record = list.find(item => item.nama === iName && item.kategori !== "CUTI" && item.jam && (!item.keluar || item.keluar === ""));
@@ -785,7 +798,7 @@
       isCutiModeActive = false;
       document.getElementById('cutiMainPanel').style.display = 'none';
       let s = JSON.parse(localStorage.getItem('ehadir_session'));
-      if(s && s.date === new Date().toISOString().slice(0,10)) {
+      if(s && s.date === getTodayStr()) {
         document.getElementById('dashboardPanel').style.display = 'block';
       } else {
         document.getElementById('defaultForm').style.display = 'block';
@@ -795,8 +808,8 @@
     function submitCutiForm() {
       let nama = document.getElementById('cutiNama').value.toUpperCase().trim();
       let kategori = document.getElementById('cutiKategori').value;
-      let tarikhMula = document.getElementById('cutiMula').value;
-      let tarikhTamat = document.getElementById('cutiTamat').value;
+      let tarikhMulaRaw = document.getElementById('cutiMula').value;
+      let tarikhTamatRaw = document.getElementById('cutiTamat').value;
       let jenisCuti = document.getElementById('cutiJenis').value.trim();
       let alasan = document.getElementById('cutiAlasan').value.trim();
       let buktiBase64 = document.getElementById('cutiBuktiBase64') ? document.getElementById('cutiBuktiBase64').value : "";
@@ -804,14 +817,17 @@
       let fileInput = document.getElementById('cutiBuktiInput');
       let fileName = (fileInput && fileInput.files && fileInput.files.length > 0) ? fileInput.files[0].name : "";
 
-      if(!nama || !kategori || !tarikhMula || !tarikhTamat || !jenisCuti || !alasan) {
+      if(!nama || !kategori || !tarikhMulaRaw || !tarikhTamatRaw || !jenisCuti || !alasan) {
         showModernAlert("Tidak Lengkap", "Sila isi semua ruangan borang cuti.", "error");
         return;
       }
-      if(tarikhMula > tarikhTamat) {
+      if(tarikhMulaRaw > tarikhTamatRaw) {
         showModernAlert("Ralat Tarikh", "Tarikh Tamat mestilah sama atau selepas Tarikh Mula.", "error");
         return;
       }
+
+      let tarikhMula = tarikhMulaRaw.split('-').reverse().join('.');
+      let tarikhTamat = tarikhTamatRaw.split('-').reverse().join('.');
 
       showModernAlert(
         "Pengesahan Pentadbir", 
@@ -868,7 +884,7 @@
       }
 
       try {
-        let res = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_CUTI", mode: "history", nama: lName, passcode: PASSCODE}) });
+        let res = await fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify({action: "GET_CUTI", mode: "history", nama: lName, passcode: PASSCODE}) });
         let json = await res.json();
         let list = json.data || json;
         if(list.length === 0) {
@@ -962,7 +978,7 @@
         let container = document.getElementById('adminCutiList');
         container.innerHTML = "<div style='padding:10px;text-align:center;font-size:12px;'>Memuatkan senarai...</div>";
         try {
-            let res = await fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_CUTI", mode: "admin", passcode: PASSCODE}) });
+            let res = await fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify({action: "GET_CUTI", mode: "admin", passcode: PASSCODE}) });
             let json = await res.json();
             let list = json.data || json;
             if(list.length === 0) {
@@ -1406,11 +1422,30 @@
   </div>
 
 <script>
+  // PENTING: Padam cache usang sewaktu permulaan sistem online untuk elak tersekat di versi lama
+  window.addEventListener('load', () => {
+    if (navigator.onLine && 'caches' in window) {
+      caches.keys().then(names => {
+        for (let name of names) {
+          if (name !== 'ehadir-hybrid-v53-repaired') {
+            caches.delete(name);
+          }
+        }
+      });
+    }
+  });
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').then(reg => {
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
         console.log('SW Berjaya:', reg.scope);
-        reg.update();
+        reg.update(); // Sentiasa periksa update sewaktu load
+        
+        // Semak fail sw.js dari server setiap kali aplikasi ditinggalkan terbuka lama (setiap jam)
+        setInterval(() => {
+            reg.update();
+        }, 60 * 60 * 1000);
+
         if ('SyncManager' in window) {
           reg.sync.register('sync-attendance').catch(err => console.log("Sync bg gagal", err));
         }
@@ -1421,7 +1456,16 @@
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (!refreshing) {
         refreshing = true;
-        window.location.reload();
+        // Paksa sistem padam seluruh cache memori UI browser supaya kod baru mengambil tempat sepenuhnya
+        if ('caches' in window) {
+            caches.keys().then(names => {
+                return Promise.all(names.map(name => caches.delete(name)));
+            }).then(() => {
+                window.location.reload(true);
+            });
+        } else {
+            window.location.reload(true);
+        }
       }
     });
     
@@ -1483,7 +1527,7 @@
         showSyncBar("👍 Semua data offline telah berjaya dihantar!", "#27ae60"); 
         loadList(); 
         setTimeout(() => {
-          fetch(API_URL, { method: "POST", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) })
+          fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify({action: "GET_LIST", passcode: PASSCODE}) })
           .then(r => r.json()).then(resData => { 
             checkAutoStatus(resData.data || resData); 
           });
@@ -1826,7 +1870,7 @@
 
   function checkSession() { 
     let s = JSON.parse(localStorage.getItem('ehadir_session')); 
-    if(s && s.date === new Date().toISOString().slice(0,10)) { 
+    if(s && s.date === getTodayStr()) { 
       document.getElementById('defaultForm').style.display = 'none'; 
       document.getElementById('dashboardPanel').style.display = 'block'; 
       document.getElementById('sessionName').innerText = s.nama; 
@@ -1851,15 +1895,22 @@
   
   function loadList() { 
     let dateInput = document.getElementById('historyDate');
-    let dateVal = dateInput ? dateInput.value : "";
-    let todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }); 
-    let isHistory = dateVal && dateVal !== todayStr;
+    let dateVal = dateInput ? dateInput.value : ""; // Formats automatically as YYYY-MM-DD
+    let targetDate = "";
+    let isHistory = false;
+
+    if (dateVal) {
+      let p = dateVal.split('-');
+      targetDate = p[2] + "." + p[1] + "." + p[0]; // Convert YYYY-MM-DD to DD.MM.YYYY
+      if (targetDate !== getTodayStr()) {
+        isHistory = true;
+      }
+    }
 
     let titleText = document.getElementById('recordTitleText');
     if (titleText) {
       if (isHistory) {
-        let parts = dateVal.split('-');
-        titleText.innerText = "Rekod (" + parts[2] + "." + parts[1] + "." + parts[0] + ")";
+        titleText.innerText = "Rekod (" + targetDate + ")";
       } else {
         titleText.innerText = "Rekod Hari Ini";
       }
@@ -1872,9 +1923,9 @@
     if(!navigator.onLine) { renderList(offlineItems); return; }
     
     let payload = {action: "GET_LIST", passcode: PASSCODE};
-    if (dateVal) payload.targetDate = dateVal;
+    if (targetDate) payload.targetDate = targetDate;
 
-    fetch(API_URL, { method: "POST", body: JSON.stringify(payload) })
+    fetch(API_URL, { method: "POST", cache: "no-store", body: JSON.stringify(payload) })
     .then(r => r.json()).then(res => { 
       let serverItems = res.data || res; 
       currentList = [...offlineItems, ...serverItems];
@@ -1889,8 +1940,11 @@
   function renderList(items) {
     let dateInput = document.getElementById('historyDate');
     let dateVal = dateInput ? dateInput.value : "";
-    let todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' });
-    let isHistory = dateVal && dateVal !== todayStr;
+    let isHistory = false;
+    if (dateVal) {
+       let p = dateVal.split('-');
+       if(p[2] + "." + p[1] + "." + p[0] !== getTodayStr()) isHistory = true;
+    }
 
     document.getElementById('count').innerText = items.length; 
     let h = ""; 
@@ -2058,7 +2112,7 @@
   function cancelPelawat() { 
     document.getElementById('pelawatPanel').style.display = 'none'; 
     let s = JSON.parse(localStorage.getItem('ehadir_session'));
-    if (s && s.date === new Date().toISOString().slice(0,10)) {
+    if (s && s.date === getTodayStr()) {
       document.getElementById('dashboardPanel').style.display = 'block';
     } else {
       document.getElementById('defaultForm').style.display = 'block';
