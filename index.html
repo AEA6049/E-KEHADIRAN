@@ -44,6 +44,56 @@
     let hasNotifiedExit = false;
     let gpsWatchId = null;
     let isCutiModeActive = false;
+    let autoCheckEnabled = true; // Global toggle dikawal Admin (sheet SETTINGS)
+    let autoSettingsMeta = { updatedAt: "", updatedBy: "" };
+
+    function fetchSettings() {
+      return fetch(API_URL + "?t=" + Date.now(), {
+        method: "POST", cache: "no-store",
+        body: JSON.stringify({ action: "GET_SETTINGS", passcode: PASSCODE })
+      }).then(r => r.json()).then(j => {
+        if (typeof j.autoCheckEnabled !== 'undefined') {
+          autoCheckEnabled = !!j.autoCheckEnabled;
+          autoSettingsMeta.updatedAt = j.updatedAt || "";
+          autoSettingsMeta.updatedBy = j.updatedBy || "";
+          updateAutoToggleUI();
+        }
+      }).catch(()=>{});
+    }
+
+    function updateAutoToggleUI() {
+      let lbl = document.getElementById('autoToggleStatus');
+      if (lbl) {
+        lbl.textContent = autoCheckEnabled ? "AKTIF" : "DIMATIKAN";
+        lbl.style.color = autoCheckEnabled ? "#27ae60" : "#c0392b";
+      }
+      let meta = document.getElementById('autoToggleMeta');
+      if (meta) meta.textContent = autoSettingsMeta.updatedAt
+        ? `Dikemas kini: ${autoSettingsMeta.updatedAt} oleh ${autoSettingsMeta.updatedBy}` : "";
+      let btn = document.getElementById('btnToggleAuto');
+      if (btn) btn.textContent = autoCheckEnabled ? "MATIKAN AUTO CHECK-IN/OUT" : "HIDUPKAN AUTO CHECK-IN/OUT";
+    }
+
+    function toggleAutoCheck() {
+      let adminName = sessionStorage.getItem('adminNameCuti') || localStorage.getItem('ehadir_locked_name') || "ADMIN";
+      let newVal = !autoCheckEnabled;
+      let msg = newVal ? "Hidupkan AUTO CHECK-IN/OUT untuk SEMUA pengguna?" : "MATIKAN AUTO CHECK-IN/OUT untuk SEMUA pengguna?";
+      showModernAlert("Sahkan Tindakan", msg, "confirm", function(ok) {
+        if (!ok) return;
+        fetch(API_URL + "?t=" + Date.now(), {
+          method: "POST", cache: "no-store",
+          body: JSON.stringify({ action: "SET_SETTINGS", passcode: PASSCODE, autoCheckEnabled: newVal, adminName: adminName })
+        }).then(r=>r.json()).then(j => {
+          if (j.result === "success") {
+            autoCheckEnabled = newVal;
+            fetchSettings();
+            showModernAlert("Berjaya", "Tetapan global dikemas kini.", "info");
+          } else {
+            showModernAlert("Gagal", j.msg || "Ralat.", "error");
+          }
+        }).catch(()=> showModernAlert("Gagal", "Tiada sambungan.", "error"));
+      });
+    }
 
     function getTodayStr() {
       let d = new Date();
@@ -461,6 +511,21 @@
 
     function monitorAutoLogic() {
       if (isCutiModeActive) return;
+      if (!autoCheckEnabled) {
+        // Admin telah matikan auto check-in/out untuk SEMUA pengguna
+        let statusEl = document.getElementById('statusText');
+        if (statusEl && !statusEl.innerHTML.includes('SEMAK & AKTIFKAN')) {
+          let zoneTxt = isInZone ? "DALAM KAWASAN" : "LUAR KAWASAN";
+          statusEl.innerHTML = `${zoneTxt} (${Math.round(currentDist)}m)<br><span style="font-size:9px; color:#7f8c8d;">AUTO CHECK-IN/OUT DIMATIKAN OLEH ADMIN</span>`;
+          statusEl.style.color = "#7f8c8d";
+          statusEl.style.background = "#ecf0f1";
+        }
+        inZoneStart = 0; outZoneStart = 0;
+        let wBox = document.getElementById('warningBox');
+        if (wBox) wBox.style.display = "none";
+        return;
+      }
+
 
       let MS_IN_DELAY = (typeof MINIT_ANTI_SPAM_MASUK !== 'undefined' ? MINIT_ANTI_SPAM_MASUK : 1) * 60 * 1000;
       let MS_OUT_DELAY = (typeof MINIT_DELAY_KELUAR !== 'undefined' ? MINIT_DELAY_KELUAR : 1) * 60 * 1000;
@@ -966,6 +1031,7 @@
 
             document.getElementById('cutiMainPanel').style.display = 'none';
             document.getElementById('adminCutiPanel').style.display = 'block';
+            fetchSettings();
             loadAdminCutiList();
         });
     }
@@ -1517,10 +1583,23 @@
       </div>
 
       <div id="adminCutiPanel" class="cuti-panel-box">
-          <h3 style="color:#1e3c72; margin:0 0 15px 0; font-weight:800;">PENGURUSAN CUTI (ADMIN)</h3>
-          <div id="adminCutiList" style="max-height:350px; overflow-y:auto; text-align:left; border:2px solid #e0eafc; padding:10px; border-radius:15px; background:#f8fbff;"></div>
+          <h3 style="color:#1e3c72; margin:0 0 15px 0; font-weight:800;">PENGURUSAN ADMIN</h3>
+
+          <div style="background:#f4f8fb; border:2px dashed #1e3c72; border-radius:15px; padding:12px; margin-bottom:15px; text-align:left;">
+            <div style="font-weight:800; font-size:13px; color:#1e3c72; margin-bottom:4px;">⚙️ Auto Check-In / Check-Out (Global)</div>
+            <div style="font-size:11px; color:#55719e; margin-bottom:8px;">
+              Status semasa: <span id="autoToggleStatus" style="font-weight:800;">--</span>
+            </div>
+            <div id="autoToggleMeta" style="font-size:10px; color:#7f8c8d; margin-bottom:8px;"></div>
+            <button id="btnToggleAuto" onclick="toggleAutoCheck()" style="width:100%; background:#1e3c72; color:white; border:none; padding:10px; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,0.15);">--</button>
+            <div style="font-size:10px; color:#7f8c8d; margin-top:6px; font-style:italic;">Tetapan ini terpakai untuk SEMUA pengguna aplikasi.</div>
+          </div>
+
+          <h4 style="margin:10px 0 8px 0; font-size:13px; color:#1e3c72; text-align:left; font-weight:800;">Pengesahan Cuti</h4>
+          <div id="adminCutiList" style="max-height:300px; overflow-y:auto; text-align:left; border:2px solid #e0eafc; padding:10px; border-radius:15px; background:#f8fbff;"></div>
           <button class="btn btn-cancel" onclick="exitAdminCuti()">TUTUP MOD ADMIN</button>
       </div>
+
 
       <div id="pelawatPanel">
         <h3 style="color:#27ae60; margin:0 0 5px 0; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:800;">
@@ -1766,6 +1845,8 @@
     startClock();
     startRadar();
     fetchConfig(); 
+    fetchSettings();
+    setInterval(fetchSettings, 30000); // poll setiap 30s supaya semua pengguna dapat update Admin
     getHijriDate();
     initLockName(); 
     initAvatar(); 
