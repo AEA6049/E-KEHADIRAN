@@ -71,11 +71,7 @@ function doPost(e) {
     if (data.action == "CHECKOUT_VISITOR") return checkoutVisitor(data.nama);
     if (data.action == "GET_LIST") return getSenaraiHadir(data);
     if (data.action == "GET_CONFIG") return getJamConfig();
-
-    // --- ENDPOINTS GLOBAL SETTINGS (AUTO CHECK-IN/OUT) ---
-    if (data.action == "GET_SETTINGS") return getGlobalSettings();
-    if (data.action == "SET_SETTINGS") return setGlobalSettings(data);
-
+    
     // --- ENDPOINTS MODUL CUTI ---
     if (data.action == "MOHON_CUTI") return mohonCuti(data);
     if (data.action == "GET_CUTI") return getCutiList(data);
@@ -478,64 +474,3 @@ function parseTime(t,r){
 }
 
 function sendResponse(s,m) { return ContentService.createTextOutput(JSON.stringify({"result":s,"msg":m})).setMimeType(ContentService.MimeType.JSON); }
-
-// --- FUNGSI GLOBAL SETTINGS (AUTO CHECK-IN/OUT TOGGLE) ---
-function getSettingsSheet_() {
-  var ss = SpreadsheetApp.openById(idSheet);
-  var sh = ss.getSheetByName("SETTINGS");
-  if (!sh) {
-    sh = ss.insertSheet("SETTINGS");
-    sh.appendRow(["Key", "Value", "UpdatedAt", "UpdatedBy"]);
-    sh.appendRow(["autoCheckEnabled", "TRUE", new Date(), "SYSTEM"]);
-    sh.getRange("A1:D1").setFontWeight("bold");
-  }
-  // Ensure key exists
-  var d = sh.getDataRange().getValues();
-  var found = false;
-  for (var i=1; i<d.length; i++) if (String(d[i][0]).trim() === "autoCheckEnabled") { found = true; break; }
-  if (!found) sh.appendRow(["autoCheckEnabled", "TRUE", new Date(), "SYSTEM"]);
-  return sh;
-}
-
-function getGlobalSettings() {
-  var sh = getSettingsSheet_();
-  var d = sh.getDataRange().getValues();
-  var autoEnabled = true;
-  var updatedAt = "";
-  var updatedBy = "";
-  for (var i=1; i<d.length; i++) {
-    if (String(d[i][0]).trim() === "autoCheckEnabled") {
-      autoEnabled = String(d[i][1]).toUpperCase().trim() !== "FALSE";
-      updatedAt = d[i][2] ? Utilities.formatDate(new Date(d[i][2]), "GMT+8", "dd.MM.yyyy hh:mm a") : "";
-      updatedBy = d[i][3] || "";
-      break;
-    }
-  }
-  return ContentService.createTextOutput(JSON.stringify({
-    result: "success",
-    autoCheckEnabled: autoEnabled,
-    updatedAt: updatedAt,
-    updatedBy: updatedBy
-  })).setMimeType(ContentService.MimeType.JSON);
-}
-
-function setGlobalSettings(data) {
-  if (!data.passcode || data.passcode !== PASSCODE_RAHSIA) {
-    return sendResponse("error", "Akses ditolak.");
-  }
-  var sh = getSettingsSheet_();
-  var d = sh.getDataRange().getValues();
-  var newVal = (data.autoCheckEnabled === true || String(data.autoCheckEnabled).toUpperCase() === "TRUE") ? "TRUE" : "FALSE";
-  var adminName = data.adminName || "ADMIN";
-  for (var i=1; i<d.length; i++) {
-    if (String(d[i][0]).trim() === "autoCheckEnabled") {
-      sh.getRange(i+1, 2).setValue(newVal);
-      sh.getRange(i+1, 3).setValue(new Date());
-      sh.getRange(i+1, 4).setValue(adminName);
-      return sendResponse("success", "Tetapan dikemas kini: AUTO = " + newVal);
-    }
-  }
-  sh.appendRow(["autoCheckEnabled", newVal, new Date(), adminName]);
-  return sendResponse("success", "Tetapan disimpan.");
-}
-

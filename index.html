@@ -15,7 +15,7 @@
         window.location.reload();
     }
 
-    const API_URL = 'https://script.google.com/macros/s/AKfycbwRH5DlepX9WiyZIdzrQnzzVqYgfVQHMDSqgjZL_tLuDXha87fwcxnemPqsKJ0XAEajmQ/exec'; 
+    const API_URL = 'https://script.google.com/macros/s/AKfycbzDfEyZJdLpGSTzwHD3jlC3KvqJA456G_a9k3ETSz6mV9dVdRVDqKw2jBczh9QK4lNhNA/exec'; 
     const PASSCODE = "101010";
     const SCHOOL_LAT = 5.250891554235944; 
     const SCHOOL_LNG = 100.75591785106874; 
@@ -44,56 +44,6 @@
     let hasNotifiedExit = false;
     let gpsWatchId = null;
     let isCutiModeActive = false;
-    let autoCheckEnabled = true; // Global toggle dikawal Admin (sheet SETTINGS)
-    let autoSettingsMeta = { updatedAt: "", updatedBy: "" };
-
-    function fetchSettings() {
-      return fetch(API_URL + "?t=" + Date.now(), {
-        method: "POST", cache: "no-store",
-        body: JSON.stringify({ action: "GET_SETTINGS", passcode: PASSCODE })
-      }).then(r => r.json()).then(j => {
-        if (typeof j.autoCheckEnabled !== 'undefined') {
-          autoCheckEnabled = !!j.autoCheckEnabled;
-          autoSettingsMeta.updatedAt = j.updatedAt || "";
-          autoSettingsMeta.updatedBy = j.updatedBy || "";
-          updateAutoToggleUI();
-        }
-      }).catch(()=>{});
-    }
-
-    function updateAutoToggleUI() {
-      let lbl = document.getElementById('autoToggleStatus');
-      if (lbl) {
-        lbl.textContent = autoCheckEnabled ? "AKTIF" : "DIMATIKAN";
-        lbl.style.color = autoCheckEnabled ? "#27ae60" : "#c0392b";
-      }
-      let meta = document.getElementById('autoToggleMeta');
-      if (meta) meta.textContent = autoSettingsMeta.updatedAt
-        ? `Dikemas kini: ${autoSettingsMeta.updatedAt} oleh ${autoSettingsMeta.updatedBy}` : "";
-      let btn = document.getElementById('btnToggleAuto');
-      if (btn) btn.textContent = autoCheckEnabled ? "MATIKAN AUTO CHECK-IN/OUT" : "HIDUPKAN AUTO CHECK-IN/OUT";
-    }
-
-    function toggleAutoCheck() {
-      let adminName = sessionStorage.getItem('adminNameCuti') || localStorage.getItem('ehadir_locked_name') || "ADMIN";
-      let newVal = !autoCheckEnabled;
-      let msg = newVal ? "Hidupkan AUTO CHECK-IN/OUT untuk SEMUA pengguna?" : "MATIKAN AUTO CHECK-IN/OUT untuk SEMUA pengguna?";
-      showModernAlert("Sahkan Tindakan", msg, "confirm", function(ok) {
-        if (!ok) return;
-        fetch(API_URL + "?t=" + Date.now(), {
-          method: "POST", cache: "no-store",
-          body: JSON.stringify({ action: "SET_SETTINGS", passcode: PASSCODE, autoCheckEnabled: newVal, adminName: adminName })
-        }).then(r=>r.json()).then(j => {
-          if (j.result === "success") {
-            autoCheckEnabled = newVal;
-            fetchSettings();
-            showModernAlert("Berjaya", "Tetapan global dikemas kini.", "info");
-          } else {
-            showModernAlert("Gagal", j.msg || "Ralat.", "error");
-          }
-        }).catch(()=> showModernAlert("Gagal", "Tiada sambungan.", "error"));
-      });
-    }
 
     function getTodayStr() {
       let d = new Date();
@@ -156,15 +106,14 @@
           checkSession(); 
         }
       } else {
-        // INTEGRITI: Hanya buang sesi jika SERVER mengesahkan user TELAH daftar keluar.
-        // Elak race-condition di mana list belum reflect daftar masuk terbaru -> kad keluar hilang seketika.
-        let confirmedOut = list.some(item => item.nama === checkName && item.kategori !== "CUTI" && item.keluar && item.keluar !== "");
-        if (currentSess && confirmedOut) {
+        let queue = JSON.parse(localStorage.getItem('ehadir_offline_queue') || "[]");
+        let isPending = queue.some(q => q.nama === checkName && q.action === "MASUK");
+        
+        if (currentSess && !isPending) {
           localStorage.removeItem('ehadir_session');
-          let dp = document.getElementById('dashboardPanel'); if(dp) dp.style.display = 'none';
-          let df = document.getElementById('defaultForm'); if(df) df.style.display = 'block';
+          document.getElementById('dashboardPanel').style.display = 'none';
+          document.getElementById('defaultForm').style.display = 'block';
         }
-        // Jika tiada rekod langsung (sync lag), kekalkan sesi & paparan kad keluar — jangan sentuh.
       }
     }
 
@@ -511,21 +460,6 @@
 
     function monitorAutoLogic() {
       if (isCutiModeActive) return;
-      if (!autoCheckEnabled) {
-        // Admin telah matikan auto check-in/out untuk SEMUA pengguna
-        let statusEl = document.getElementById('statusText');
-        if (statusEl && !statusEl.innerHTML.includes('SEMAK & AKTIFKAN')) {
-          let zoneTxt = isInZone ? "DALAM KAWASAN" : "LUAR KAWASAN";
-          statusEl.innerHTML = `${zoneTxt} (${Math.round(currentDist)}m)<br><span style="font-size:9px; color:#7f8c8d;">AUTO CHECK-IN/OUT DIMATIKAN OLEH ADMIN</span>`;
-          statusEl.style.color = "#7f8c8d";
-          statusEl.style.background = "#ecf0f1";
-        }
-        inZoneStart = 0; outZoneStart = 0;
-        let wBox = document.getElementById('warningBox');
-        if (wBox) wBox.style.display = "none";
-        return;
-      }
-
 
       let MS_IN_DELAY = (typeof MINIT_ANTI_SPAM_MASUK !== 'undefined' ? MINIT_ANTI_SPAM_MASUK : 1) * 60 * 1000;
       let MS_OUT_DELAY = (typeof MINIT_DELAY_KELUAR !== 'undefined' ? MINIT_DELAY_KELUAR : 1) * 60 * 1000;
@@ -1031,7 +965,6 @@
 
             document.getElementById('cutiMainPanel').style.display = 'none';
             document.getElementById('adminCutiPanel').style.display = 'block';
-            fetchSettings();
             loadAdminCutiList();
         });
     }
@@ -1228,158 +1161,9 @@
     #syncStatusBar { display: none; position: fixed; top: 0; left: 0; width: 100%; padding: 12px; text-align: center; z-index: 10001; font-size: 12px; font-weight: 700; color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.3); text-transform: uppercase; }
     
     #autoModeIndicator { background: linear-gradient(145deg, #3498db, #1e3c72); color: white; padding: 8px; font-size: 11px; font-weight: 700; text-align: center; margin-bottom: 15px; border-radius: 10px; box-shadow: 0 4px 10px rgba(30,60,114,0.2); display: none; border: 1px solid rgba(255,255,255,0.2); }
-
-    /* ============== 7-DAY DYNAMIC THEME + 3D CORPORATE POLISH ============== */
-    :root {
-      --th-primary-dark: #1e3c72;
-      --th-primary: #3498db;
-      --th-primary-shadow: #152b53;
-      --th-accent: #f1c40f;
-      --th-fg-on-primary: #ffffff;
-      --th-body-1: #e8eef7;
-      --th-body-2: #cfdbeb;
-      --th-card-tint: #eef3fb;
-      --th-text-strong: #1e3c72;
-      --th-text-soft: #55719e;
-    }
-    /* Ahad — Royal Navy & Gold */
-    body[data-theme="sun"] { --th-primary-dark:#0a2540; --th-primary:#1b3a6b; --th-primary-shadow:#06182b; --th-accent:#d4a23a; --th-fg-on-primary:#fff; --th-body-1:#e9eef7; --th-body-2:#c8d4e8; --th-card-tint:#eef2fa; --th-text-strong:#0a2540; --th-text-soft:#4a5b7a; }
-    /* Isnin — Deep Ocean Teal */
-    body[data-theme="mon"] { --th-primary-dark:#064e5b; --th-primary:#0d7a8a; --th-primary-shadow:#03323b; --th-accent:#f5c34b; --th-fg-on-primary:#fff; --th-body-1:#e3f1f3; --th-body-2:#bcdde2; --th-card-tint:#ecf6f8; --th-text-strong:#064e5b; --th-text-soft:#3d6770; }
-    /* Selasa — Crimson Executive */
-    body[data-theme="tue"] { --th-primary-dark:#5a0f0f; --th-primary:#a82424; --th-primary-shadow:#3a0606; --th-accent:#f1c40f; --th-fg-on-primary:#fff; --th-body-1:#f6e7e7; --th-body-2:#e6c3c3; --th-card-tint:#faeded; --th-text-strong:#5a0f0f; --th-text-soft:#7d3a3a; }
-    /* Rabu — Forest Emerald */
-    body[data-theme="wed"] { --th-primary-dark:#0d4f3c; --th-primary:#1e7a5e; --th-primary-shadow:#062a20; --th-accent:#e8c25a; --th-fg-on-primary:#fff; --th-body-1:#e4f1ec; --th-body-2:#bedccf; --th-card-tint:#ecf6f1; --th-text-strong:#0d4f3c; --th-text-soft:#3d6e5c; }
-    /* Khamis — Royal Purple */
-    body[data-theme="thu"] { --th-primary-dark:#2d1b4e; --th-primary:#4a2d7a; --th-primary-shadow:#180b2c; --th-accent:#f0c419; --th-fg-on-primary:#fff; --th-body-1:#ece6f5; --th-body-2:#ccbfe2; --th-card-tint:#f1ecf8; --th-text-strong:#2d1b4e; --th-text-soft:#5a4880; }
-    /* Jumaat — Midnight Slate (warna solemn untuk Jumaat) */
-    body[data-theme="fri"] { --th-primary-dark:#1a1f36; --th-primary:#2c3552; --th-primary-shadow:#0b0f1c; --th-accent:#d4a23a; --th-fg-on-primary:#fff; --th-body-1:#e7e9f0; --th-body-2:#c4c8d6; --th-card-tint:#edeff5; --th-text-strong:#1a1f36; --th-text-soft:#4c5577; }
-    /* Sabtu — Bronze Charcoal */
-    body[data-theme="sat"] { --th-primary-dark:#3a1f12; --th-primary:#7a4a2b; --th-primary-shadow:#1f0e07; --th-accent:#e8b765; --th-fg-on-primary:#fff; --th-body-1:#f1ebe4; --th-body-2:#d9c8b6; --th-card-tint:#f6f1ea; --th-text-strong:#3a1f12; --th-text-soft:#6b5141; }
-
-    /* Suntik palet pada elemen utama tanpa rosakkan fungsi */
-    body {
-      background:
-        radial-gradient(1200px 600px at 10% -10%, color-mix(in srgb, var(--th-primary) 22%, transparent) 0%, transparent 60%),
-        radial-gradient(900px 500px at 110% 0%, color-mix(in srgb, var(--th-accent) 18%, transparent) 0%, transparent 60%),
-        linear-gradient(135deg, var(--th-body-1) 0%, var(--th-body-2) 100%) !important;
-    }
-    .container {
-      box-shadow:
-        0 30px 60px -20px color-mix(in srgb, var(--th-primary-dark) 45%, transparent),
-        0 12px 24px -8px rgba(0,0,0,0.15),
-        inset 0 0 0 1px rgba(255,255,255,0.9),
-        inset 0 2px 0 rgba(255,255,255,0.95) !important;
-      border: 1px solid color-mix(in srgb, var(--th-primary-dark) 18%, #ffffff) !important;
-    }
-    .header-bg {
-      background:
-        linear-gradient(180deg, color-mix(in srgb, #ffffff 14%, transparent) 0%, transparent 35%),
-        linear-gradient(145deg, var(--th-primary) 0%, var(--th-primary-dark) 100%) !important;
-      box-shadow:
-        0 14px 28px -10px color-mix(in srgb, var(--th-primary-dark) 70%, transparent),
-        inset 0 2px 0 rgba(255,255,255,0.35),
-        inset 0 -6px 12px rgba(0,0,0,0.28),
-        inset 0 0 0 1px rgba(255,255,255,0.12) !important;
-      border-bottom: 2px solid var(--th-primary-shadow) !important;
-      color: var(--th-fg-on-primary) !important;
-    }
-    .title-small { color: color-mix(in srgb, var(--th-accent) 70%, #ffffff) !important; }
-    .title-big, .header-bg, .top-bar-row { color: var(--th-fg-on-primary) !important; }
-
-    .btn, .btn-ok {
-      background: linear-gradient(145deg, var(--th-primary) 0%, var(--th-primary-dark) 100%) !important;
-      box-shadow:
-        0 7px 0 var(--th-primary-shadow),
-        0 14px 24px -6px color-mix(in srgb, var(--th-primary-dark) 55%, transparent),
-        inset 0 2px 0 rgba(255,255,255,0.28),
-        inset 0 -3px 6px rgba(0,0,0,0.18) !important;
-      color: var(--th-fg-on-primary) !important;
-      letter-spacing: 1.2px;
-    }
-    .btn:active, .btn-ok:active {
-      box-shadow: 0 0 0 var(--th-primary-shadow), inset 0 3px 8px rgba(0,0,0,0.25) !important;
-    }
-
-    .giant-cam-btn {
-      background:
-        linear-gradient(180deg, rgba(255,255,255,0.18) 0%, transparent 40%),
-        linear-gradient(145deg, var(--th-primary) 0%, var(--th-primary-dark) 100%) !important;
-      box-shadow:
-        0 10px 0 var(--th-primary-shadow),
-        0 22px 40px -10px color-mix(in srgb, var(--th-primary-dark) 65%, transparent),
-        inset 0 3px 0 rgba(255,255,255,0.3),
-        inset 0 -6px 14px rgba(0,0,0,0.3) !important;
-    }
-    .giant-cam-btn:active { box-shadow: 0 0 0 var(--th-primary-shadow), inset 0 4px 12px rgba(0,0,0,0.3) !important; }
-
-    #autoModeIndicator {
-      background: linear-gradient(145deg, var(--th-primary), var(--th-primary-dark)) !important;
-      color: var(--th-fg-on-primary) !important;
-      box-shadow: 0 6px 14px color-mix(in srgb, var(--th-primary-dark) 30%, transparent), inset 0 1px 0 rgba(255,255,255,0.25) !important;
-    }
-    #statusText {
-      color: var(--th-text-strong) !important;
-      background: color-mix(in srgb, var(--th-primary) 14%, #ffffff) !important;
-      border-color: color-mix(in srgb, var(--th-primary) 28%, #ffffff) !important;
-    }
-    .live-timer { background: linear-gradient(145deg, var(--th-primary-dark), var(--th-primary)) !important; color: #fff !important; }
-    .time-pill { color: var(--th-text-strong) !important; border-color: color-mix(in srgb, var(--th-primary) 22%, #ffffff) !important; }
-    .user-card::before, .cuti-card::before { background: var(--th-primary-dark) !important; }
-    .user-info strong, .user-welcome, .modal-title, .list-header span { color: var(--th-text-strong) !important; }
-    .locked-msg, .user-details, .modal-msg { color: var(--th-text-soft) !important; }
-    #dashboardSchedule { color: var(--th-text-strong) !important; background: color-mix(in srgb, var(--th-primary) 12%, #ffffff) !important; border-color: color-mix(in srgb, var(--th-primary) 25%, #ffffff) !important; }
-    select, input, textarea { color: var(--th-text-strong) !important; border-color: color-mix(in srgb, var(--th-primary) 20%, #ffffff) !important; }
-    select:focus, input:focus { border-color: var(--th-primary) !important; box-shadow: 0 0 0 4px color-mix(in srgb, var(--th-primary) 25%, transparent), inset 0 2px 4px rgba(0,0,0,0.04) !important; }
-
-    /* 3D bevel pada cards */
-    .user-card, .cuti-card {
-      background: linear-gradient(180deg, #ffffff 0%, var(--th-card-tint) 100%) !important;
-      box-shadow:
-        0 10px 20px -8px color-mix(in srgb, var(--th-primary-dark) 25%, transparent),
-        0 2px 0 rgba(255,255,255,0.9) inset,
-        0 -1px 0 color-mix(in srgb, var(--th-primary-dark) 8%, transparent) inset !important;
-      border: 1px solid color-mix(in srgb, var(--th-primary) 15%, #ffffff) !important;
-    }
-    /* Pasti kad daftar keluar tidak transparent / hilang */
-    #dashboardPanel { opacity: 1 !important; }
-
-    /* Day-badge kecil dalam header */
-    .day-theme-badge {
-      display: inline-block; margin-top: 6px; padding: 4px 12px; border-radius: 999px;
-      background: rgba(255,255,255,0.16); color: #fff; font-size: 10px; font-weight: 700;
-      letter-spacing: 1.5px; text-transform: uppercase; backdrop-filter: blur(4px);
-      border: 1px solid rgba(255,255,255,0.25); text-shadow: 0 1px 2px rgba(0,0,0,0.25);
-    }
-    /* ====================================================================== */
-
   </style>
 </head>
-<body oncontextmenu="return false;" data-theme="mon">
-<script>
-  (function(){
-    var keys = ['sun','mon','tue','wed','thu','fri','sat'];
-    var names = ['AHAD','ISNIN','SELASA','RABU','KHAMIS','JUMAAT','SABTU'];
-    var themeColors = {
-      sun:'#0a2540', mon:'#064e5b', tue:'#5a0f0f', wed:'#0d4f3c',
-      thu:'#2d1b4e', fri:'#1a1f36', sat:'#3a1f12'
-    };
-    function apply(){
-      var d = new Date();
-      var k = keys[d.getDay()];
-      document.body.setAttribute('data-theme', k);
-      var meta = document.querySelector('meta[name="theme-color"]');
-      if(!meta){ meta=document.createElement('meta'); meta.name='theme-color'; document.head.appendChild(meta);}
-      meta.setAttribute('content', themeColors[k]);
-      var badge = document.getElementById('dayThemeBadge');
-      if(badge) badge.textContent = '◆ ' + names[d.getDay()] + ' ◆';
-    }
-    if(document.body) apply(); else document.addEventListener('DOMContentLoaded', apply);
-    // Recheck tengah malam
-    setInterval(apply, 60000);
-  })();
-</script>
- 
+<body oncontextmenu="return false;"> 
 
   <div id="syncStatusBar"></div>
   <div id="warningBox"> AMARAN! KELUAR ZON.<br>AUTO-CHECKOUT DALAM <span id="countDown">10</span>S</div>
@@ -1435,7 +1219,6 @@
       <div class="main-title-block">
         <div class="title-small">SISTEM PENGURUSAN</div>
         <div class="title-big">E-HADIR</div>
-          <span id="dayThemeBadge" class="day-theme-badge">◆ HARI ◆</span>
         <div class="title-big">SMK SUNGAI BAYOR</div>
       </div>
     </div>
@@ -1583,23 +1366,10 @@
       </div>
 
       <div id="adminCutiPanel" class="cuti-panel-box">
-          <h3 style="color:#1e3c72; margin:0 0 15px 0; font-weight:800;">PENGURUSAN ADMIN</h3>
-
-          <div style="background:#f4f8fb; border:2px dashed #1e3c72; border-radius:15px; padding:12px; margin-bottom:15px; text-align:left;">
-            <div style="font-weight:800; font-size:13px; color:#1e3c72; margin-bottom:4px;">⚙️ Auto Check-In / Check-Out (Global)</div>
-            <div style="font-size:11px; color:#55719e; margin-bottom:8px;">
-              Status semasa: <span id="autoToggleStatus" style="font-weight:800;">--</span>
-            </div>
-            <div id="autoToggleMeta" style="font-size:10px; color:#7f8c8d; margin-bottom:8px;"></div>
-            <button id="btnToggleAuto" onclick="toggleAutoCheck()" style="width:100%; background:#1e3c72; color:white; border:none; padding:10px; border-radius:10px; font-weight:700; font-size:12px; cursor:pointer; box-shadow:0 4px 10px rgba(0,0,0,0.15);">--</button>
-            <div style="font-size:10px; color:#7f8c8d; margin-top:6px; font-style:italic;">Tetapan ini terpakai untuk SEMUA pengguna aplikasi.</div>
-          </div>
-
-          <h4 style="margin:10px 0 8px 0; font-size:13px; color:#1e3c72; text-align:left; font-weight:800;">Pengesahan Cuti</h4>
-          <div id="adminCutiList" style="max-height:300px; overflow-y:auto; text-align:left; border:2px solid #e0eafc; padding:10px; border-radius:15px; background:#f8fbff;"></div>
+          <h3 style="color:#1e3c72; margin:0 0 15px 0; font-weight:800;">PENGURUSAN CUTI (ADMIN)</h3>
+          <div id="adminCutiList" style="max-height:350px; overflow-y:auto; text-align:left; border:2px solid #e0eafc; padding:10px; border-radius:15px; background:#f8fbff;"></div>
           <button class="btn btn-cancel" onclick="exitAdminCuti()">TUTUP MOD ADMIN</button>
       </div>
-
 
       <div id="pelawatPanel">
         <h3 style="color:#27ae60; margin:0 0 5px 0; display:flex; align-items:center; justify-content:center; gap:5px; font-weight:800;">
@@ -1845,8 +1615,6 @@
     startClock();
     startRadar();
     fetchConfig(); 
-    fetchSettings();
-    setInterval(fetchSettings, 30000); // poll setiap 30s supaya semua pengguna dapat update Admin
     getHijriDate();
     initLockName(); 
     initAvatar(); 
@@ -2164,7 +1932,7 @@
       renderList(currentList);
       if (!isHistory) {
         checkAutoStatus(currentList);
-        validateFormState();
+        validateFormState;
       }
     }).catch(() => { renderList(offlineItems); });
   }

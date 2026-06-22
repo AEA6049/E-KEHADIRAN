@@ -2,7 +2,7 @@
 // Dibuat untuk: E-HADIR PWA
 // Strategi: Network First (Data Terkini) -> Fallback Cache (Offline)
 
-const CACHE_NAME = 'ehadir-hybrid-v54-theme';
+const CACHE_NAME = 'ehadir-hybrid-v53-repaired';
 const URLS_TO_CACHE = [
   './',
   './index.html',
